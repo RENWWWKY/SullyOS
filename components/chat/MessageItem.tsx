@@ -1150,10 +1150,20 @@ const MessageItem = React.memo(({
 
     if (m.type === 'social_card' && m.metadata?.post) {
         const post = m.metadata.post;
+        // If the saved image is a raw twemoji codepoint (eg "2728"), convert it to the actual emoji character;
+        // otherwise leave whatever the AI / user picked unchanged.
+        const rawImage: string | undefined = post.images?.[0];
+        let displayImage: string | undefined = rawImage;
+        if (typeof rawImage === 'string' && /^[0-9a-fA-F-]+$/.test(rawImage)) {
+            try {
+                const points = rawImage.split('-').map(c => parseInt(c, 16)).filter(n => Number.isFinite(n));
+                if (points.length > 0) displayImage = String.fromCodePoint(...points);
+            } catch {}
+        }
         return commonLayout(
             <div className="w-64 bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100 cursor-pointer active:opacity-90 transition-opacity">
                 <div className="h-32 w-full flex items-center justify-center text-6xl relative overflow-hidden" style={{ background: post.bgStyle || '#fce7f3' }}>
-                    {post.images?.[0] || <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4c4.png" alt="document" className="w-12 h-12" />}
+                    {displayImage || <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4c4.png" alt="document" className="w-12 h-12" />}
                     <div className="absolute bottom-0 left-0 w-full p-2 bg-gradient-to-t from-black/30 to-transparent">
                         <div className="text-white text-xs font-bold line-clamp-1">{post.title}</div>
                     </div>

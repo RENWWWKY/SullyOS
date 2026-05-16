@@ -1377,7 +1377,9 @@ export interface SocialComment {
     authorAvatar?: string;
     content: string;
     likes: number;
-    isCharacter?: boolean; 
+    isCharacter?: boolean;
+    authorType?: 'user' | 'character' | 'stranger';
+    authorCharId?: string;
 }
 
 export interface SocialPost {
@@ -1386,14 +1388,16 @@ export interface SocialPost {
     authorAvatar: string;
     title: string;
     content: string;
-    images: string[]; 
+    images: string[];
     likes: number;
     isCollected: boolean;
     isLiked: boolean;
     comments: SocialComment[];
     timestamp: number;
     tags: string[];
-    bgStyle?: string; 
+    bgStyle?: string;
+    authorType?: 'user' | 'character' | 'stranger';
+    authorCharId?: string;
 }
 
 export interface SubAccount {
