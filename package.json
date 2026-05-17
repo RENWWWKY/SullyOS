@@ -5,11 +5,11 @@
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run build:workers && vite build",
     "preview": "vite preview",
     "cap:sync": "cap sync",
     "cap:android": "cap open android",
-    "build:instant-worker": "node scripts/build-instant-worker.mjs"
+    "build:workers": "node scripts/build-workers.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
