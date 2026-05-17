@@ -241,9 +241,15 @@ type Y520Stage =
     | 'anchor_playing'         // 选完动作后 char 回应
     | 'touch_playing'
     | 'reveal'
-    | 'self_reveal_hint';
+    | 'self_reveal_hint'       // "你下意识低头看了看自己——"
+    | 'self_reveal_choose';    // 选项浮层："诶？" 等
 
-const SELF_REVEAL_HINT_LINES = ['（你下意识低头看了看自己——）', '诶？'];
+const SELF_REVEAL_HINT_LINES = ['（你下意识低头看了看自己——）'];
+const SELF_REVEAL_OPTIONS: { key: string; label: string }[] = [
+    { key: 'eh', label: '「诶？」' },
+    { key: 'silence', label: '「……」' },
+    { key: 'look', label: '（你仔细看了看）' },
+];
 
 interface Y520SceneProps {
     callA: Like520CallAResult;
@@ -312,8 +318,16 @@ const Y520Scene: React.FC<Y520SceneProps> = ({ callA, charName, charAvatar, char
             setLineIdx(0);
             setStage('self_reveal_hint');
         } else if (stage === 'self_reveal_hint') {
-            onComplete();
+            // 唯一一行播完 → 弹选项（不让 char 替 user 说"诶？"）
+            setQueue([]);
+            setLineIdx(0);
+            setStage('self_reveal_choose');
         }
+    };
+
+    const pickSelfReveal = (_key: string) => {
+        if (stage !== 'self_reveal_choose') return;
+        onComplete();
     };
 
     const pickTucao = (key: Like520TucaoKey) => {
@@ -358,12 +372,8 @@ const Y520Scene: React.FC<Y520SceneProps> = ({ callA, charName, charAvatar, char
 
     return (
         <div className="relative flex flex-col h-full max-w-md mx-auto overflow-hidden">
-            {/* Cinematic letterbox 上下黑条（轻微，给"剧场感"） */}
-            <div className="absolute top-0 inset-x-0 bg-black z-[5] pointer-events-none" style={{ height: '3vh' }} />
-            <div className="absolute bottom-0 inset-x-0 bg-black z-[5] pointer-events-none" style={{ height: '3vh' }} />
-
             {/* Header */}
-            <div className="flex items-center gap-2 px-3 pt-[calc(3vh+10px)] pb-2 shrink-0 relative z-10">
+            <div className="flex items-center gap-2 px-3 pt-3 pb-2 shrink-0 relative z-10">
                 <div className="flex items-center gap-2 bg-[#5C3A2E]/90 rounded-full pl-1 pr-3 py-1 shadow">
                     {charAvatar?.startsWith('http') || charAvatar?.startsWith('data:') ? (
                         <img src={charAvatar} alt={charName} className="w-7 h-7 rounded-full object-cover border-2 border-[#FFE4D5]" />
@@ -429,11 +439,11 @@ const Y520Scene: React.FC<Y520SceneProps> = ({ callA, charName, charAvatar, char
             </div>
 
             {/* Galgame dialogue box */}
-            <div className="px-3 pb-[calc(3vh+12px)] pt-2 shrink-0 relative z-10">
+            <div className="px-3 pb-3 pt-2 shrink-0 relative z-10">
                 <DialogueBox
                     charName={nameTag}
-                    onAdvance={stage === 'tucao_choose' || stage === 'anchor_action_choose' ? undefined : (queue.length > 0 ? advance : undefined)}
-                    showArrow={!!(queue.length > 0 && stage !== 'tucao_choose' && stage !== 'anchor_action_choose')}
+                    onAdvance={stage === 'tucao_choose' || stage === 'anchor_action_choose' || stage === 'self_reveal_choose' ? undefined : (queue.length > 0 ? advance : undefined)}
+                    showArrow={!!(queue.length > 0 && stage !== 'tucao_choose' && stage !== 'anchor_action_choose' && stage !== 'self_reveal_choose')}
                     arrowGlyph={stage === 'self_reveal_hint' && !hasMoreLines ? '→' : '▽'}
                 >
                     {currentLine ? (
@@ -445,6 +455,7 @@ const Y520Scene: React.FC<Y520SceneProps> = ({ callA, charName, charAvatar, char
                             （{
                                 stage === 'tucao_choose' ? '你的反应是——'
                                 : stage === 'anchor_action_choose' ? '你要做什么呢——'
+                                : stage === 'self_reveal_choose' ? '……'
                                 : stage === 'free' && !allAnchorsUsed ? `摸摸 ${charName}，或者从架子上拿一样`
                                 : '……'
                             }）
@@ -466,6 +477,13 @@ const Y520Scene: React.FC<Y520SceneProps> = ({ callA, charName, charAvatar, char
                     prompt={`你 要 ${activeAnchor.item_label}`}
                     options={activeAnchor.user_action_options.map((label, i) => ({ key: String(i), label }))}
                     onPick={(k) => pickUserAction(activeAnchor.user_action_options[Number(k)])}
+                />
+            )}
+            {stage === 'self_reveal_choose' && (
+                <ChoiceOverlay
+                    prompt="你 的 反 应"
+                    options={SELF_REVEAL_OPTIONS}
+                    onPick={pickSelfReveal}
                 />
             )}
         </div>
@@ -523,33 +541,12 @@ const UncoveredLineView: React.FC<{
 
     return (
         <div
-            className="relative h-full w-full max-w-md mx-auto overflow-hidden"
+            className="relative flex flex-col h-full w-full max-w-md mx-auto overflow-hidden"
             style={{ background: 'linear-gradient(180deg, #FFF1E6 0%, #FFE4EC 45%, #FFD1DC 100%)' }}
         >
-            {/* Cinematic letterbox（黑框在身后挡颜色，chibi 可探出来形成 3D 感） */}
-            <div className="absolute top-0 inset-x-0 bg-black z-[5] pointer-events-none" style={{ height: '9vh' }} />
-            <div className="absolute bottom-0 inset-x-0 bg-black z-[5] pointer-events-none" style={{ height: '9vh' }} />
-
-            {/* Chibis 居中、底部对齐，能"穿过"黑框区域形成立体感 */}
-            <div
-                className="absolute inset-x-0 z-[10] flex items-end justify-center gap-2 px-4 pointer-events-none"
-                style={{ top: 0, bottom: '14vh' }}
-            >
-                <img
-                    src={charChibi}
-                    alt="char"
-                    className="max-h-full max-w-[42%] object-contain object-bottom drop-shadow-[0_8px_24px_rgba(199,97,130,0.35)]"
-                />
-                <img
-                    src={userChibi}
-                    alt="user"
-                    className="max-h-full max-w-[42%] object-contain object-bottom drop-shadow-[0_8px_24px_rgba(199,97,130,0.35)]"
-                />
-            </div>
-
-            {/* Name tag — 浮在左上 letterbox 下方 */}
-            <div className="absolute left-3 z-[20]" style={{ top: 'calc(9vh + 12px)' }}>
-                <div className="flex items-center gap-2 bg-[#5C3A2E]/90 rounded-full pl-1 pr-4 py-1 shadow">
+            {/* Header (name tag) */}
+            <div className="px-3 pt-3 pb-1 shrink-0">
+                <div className="flex items-center gap-2 bg-[#5C3A2E]/90 rounded-full pl-1 pr-4 py-1 shadow w-fit">
                     {charAvatar?.startsWith('http') || charAvatar?.startsWith('data:') ? (
                         <img src={charAvatar} alt={charName} className="w-7 h-7 rounded-full object-cover border-2 border-[#FFE4D5]" />
                     ) : (
@@ -559,8 +556,38 @@ const UncoveredLineView: React.FC<{
                 </div>
             </div>
 
-            {/* 对白盒 — 居中下三分位，让 chibi 头部能从盒子上方露出来 */}
-            <div className="absolute inset-x-0 px-3 z-[20]" style={{ bottom: 'calc(9vh + 14px)' }}>
+            {/* Chibi 区——独占 60% 高度，user chibi 摇摆挪进 */}
+            <div className="flex-1 flex items-end justify-center gap-3 px-4 pb-2 min-h-0 relative">
+                <img
+                    src={charChibi}
+                    alt="char"
+                    className="max-h-full max-w-[42%] object-contain object-bottom drop-shadow-[0_8px_20px_rgba(199,97,130,0.3)]"
+                />
+                <img
+                    src={userChibi}
+                    alt="user"
+                    className="max-h-full max-w-[42%] object-contain object-bottom drop-shadow-[0_8px_20px_rgba(199,97,130,0.3)]"
+                    style={{
+                        animation: 'userChibiWaddle 1.6s cubic-bezier(0.34, 1.56, 0.64, 1) both',
+                        transformOrigin: 'bottom center',
+                    }}
+                />
+                <style>{`
+                    @keyframes userChibiWaddle {
+                        0%   { transform: translateX(160%) rotate(0deg); opacity: 0; }
+                        20%  { transform: translateX(120%) rotate(-6deg); opacity: 1; }
+                        35%  { transform: translateX(80%) rotate(6deg); }
+                        50%  { transform: translateX(45%) rotate(-5deg); }
+                        65%  { transform: translateX(18%) rotate(4deg); }
+                        80%  { transform: translateX(0) rotate(-3deg); }
+                        90%  { transform: translateX(0) rotate(2deg); }
+                        100% { transform: translateX(0) rotate(0); }
+                    }
+                `}</style>
+            </div>
+
+            {/* 对白盒——独立占下方，绝对不遮 chibi */}
+            <div className="px-3 pb-3 pt-2 shrink-0">
                 <DialogueBox
                     charName={charName}
                     onAdvance={advance}
