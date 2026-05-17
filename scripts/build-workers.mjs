@@ -28,29 +28,15 @@ const WORKERS = [
   { name: 'instant-push', outName: 'instant-worker.bundle.js' },
 ];
 
-// CF Workers' `nodejs_compat` layer only resolves the `node:`-prefixed module
-// id, not the bare `crypto`. amsg-instant (and its web-push dep) ship bare
-// imports — without this plugin the deployed bundle throws at startup with
-// `No such module "crypto" imported from "worker.js"` even with the flag
-// enabled. Rewrite every `crypto` / `node:crypto` import to `node:crypto` and
-// keep them external so the runtime supplies them.
-const nodeCryptoExternalPlugin = {
-  name: 'node-crypto-external',
-  setup(build) {
-    build.onResolve({ filter: /^(node:)?crypto$/ }, () => ({
-      path: 'node:crypto',
-      external: true,
-    }));
-  },
-};
-
+// amsg-instant 0.3.0+ uses only Web Crypto (globalThis.crypto.subtle); the
+// bundle has zero Node crypto imports, so CF Workers / Vercel Edge / Netlify
+// Edge run with no compatibility flags and no runtime polyfill.
 const sharedOpts = {
   format: 'esm',
   target: 'es2022',
   platform: 'neutral',
   bundle: true,
   minify: false,
-  plugins: [nodeCryptoExternalPlugin],
   conditions: ['worker', 'browser', 'import', 'default'],
 };
 
