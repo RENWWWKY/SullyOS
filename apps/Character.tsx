@@ -1029,7 +1029,10 @@ ${isInitialGeneration ? `
                                                addToast('请填写有效的 http(s) 图片链接', 'error');
                                                return;
                                            }
-                                           if (v !== formData.avatar) handleChange('avatar', v);
+                                           if (v !== formData.avatar) {
+                                               handleChange('avatar', v);
+                                               addToast('头像 URL 已保存', 'success');
+                                           }
                                        }}
                                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                                        placeholder="或粘贴图片 URL（回车确认）"
