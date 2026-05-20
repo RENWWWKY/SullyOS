@@ -150,9 +150,9 @@ async function onLLMOutput(ctx: any) {
         },
       }),
       notification,
-      // 0.8.0-next.2 splitPattern 默认 ON (按句切); 显式 null 保单 push,
-      // SullyOS 客户端 applyAssistantPostProcessing Step 13 在端上分句.
-      splitPattern: null,
+      // splitPattern 的禁用必须在外层 request body 上 (见 instantPushClient.ts) —
+      // amsg-instant pickSplitConfig 读的是请求级 payload.splitPattern, hook 返回
+      // 的 pushPayload 上的同名字段会被静默忽略. 这里不重复塞.
     };
     warnIfPayloadLarge(pushPayload);
     return { decision: 'tool-request' as const, pushPayload };
@@ -179,7 +179,8 @@ async function onLLMOutput(ctx: any) {
       },
     }),
     notification,
-    splitPattern: null,
+    // splitPattern 禁用见上面分支同样的注释 — 客户端 instantPushClient 在 request
+    // body 外层注入, hook 这里不重复.
   };
   warnIfPayloadLarge(pushPayload);
   return { decision: 'finish' as const, pushPayload };

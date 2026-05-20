@@ -299,6 +299,17 @@ export interface InstantPushPayload {
   // sendInstantPushAndAwaitReply 自动注入; 直接调用 sendInstantPush 的低阶路径 (e.g. 测试推送)
   // 可省略, 此时 worker 行为退化到 v0.6 one-shot.
   sessionId?: string;
+  /**
+   * 控制 amsg-instant 0.8.0-next.2 的 content/tool_request push 是否按句切.
+   * null = 不切, 整段一次性 push (SullyOS 客户端 applyAssistantPostProcessing
+   * Step 13 在端上分句, worker 端不分). amsg-instant 默认 ON 会撞到 client +
+   * worker 双切问题. sendInstantPush 会兜底注入 null.
+   *
+   * 注意: 这个字段必须在外层 request body 上, 不是 hook 返回的 pushPayload 上 —
+   * amsg-instant pickSplitConfig 读的是请求级 payload.splitPattern, hook 内部
+   * 写在 pushPayload 上会被静默忽略.
+   */
+  splitPattern?: string | string[] | null;
 }
 
 // ── localStorage helpers ───────────────────────────────────────────────────
@@ -439,7 +450,11 @@ export async function sendInstantPush(
   const url = `${cfg.workerUrl.replace(/\/+$/, '')}/instant`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (cfg.clientToken) headers['X-Client-Token'] = cfg.clientToken;
-  const body = JSON.stringify(payload);
+  // 兜底注入 splitPattern: null — amsg-instant 0.8.0-next.2 默认 ON, 没显式禁会
+  // 跟客户端 applyAssistantPostProcessing Step 13 双切. 该字段必须在 request body
+  // 外层, hook 返回的 pushPayload 上会被静默忽略 (上游 next.2 leaky API).
+  const requestBody = { ...payload, splitPattern: payload.splitPattern ?? null };
+  const body = JSON.stringify(requestBody);
   const useKeepalive = !!options.keepalive && body.length <= KEEPALIVE_MAX_BODY;
   const maskedHosts = [
     extractHost(cfg.workerUrl),
