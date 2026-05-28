@@ -1668,11 +1668,17 @@ const Chat: React.FC = () => {
     const handleDeleteEmoji = async () => {
         if (!selectedEmoji) return;
         const emojisToDelete = Array.isArray(selectedEmoji) ? selectedEmoji : [selectedEmoji];
-        await Promise.all(emojisToDelete.map(emoji => DB.deleteEmoji(emoji.name)));
-        await loadEmojiData();
-        setModalType('none');
-        setSelectedEmoji(null);
-        addToast(Array.isArray(selectedEmoji) ? `已删除 ${selectedEmoji.length} 个表情包` : '表情包已删除', 'success');
+        try {
+            await Promise.all(emojisToDelete.map(emoji => DB.deleteEmoji(emoji.name)));
+            addToast(Array.isArray(selectedEmoji) ? `已删除 ${selectedEmoji.length} 个表情包` : '表情包已删除', 'success');
+        } catch (err) {
+            console.error('Failed to delete emojis:', err);
+            addToast('删除表情包失败', 'error');
+        } finally {
+            await loadEmojiData();
+            setModalType('none');
+            setSelectedEmoji(null);
+        }
     };
 
     // --- Batch Selection ---

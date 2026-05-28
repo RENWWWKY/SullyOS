@@ -112,11 +112,7 @@ const DevDebugPanel: React.FC = () => {
     useEffect(() => subscribeDevDebugLlmLog((entries) => setLlmLogCount(entries.length)), []);
     useEffect(() => {
         const clampAndPersist = () => {
-            setFloatingPosition((current) => {
-                const next = clampFloatingPosition(current);
-                writeDevDebugPosition(next);
-                return next;
-            });
+            setFloatingPosition((current) => clampFloatingPosition(current));
         };
         window.addEventListener('resize', clampAndPersist);
         window.visualViewport?.addEventListener('resize', clampAndPersist);

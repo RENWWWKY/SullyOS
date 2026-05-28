@@ -493,7 +493,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                                     onPanelAction('delete-emoji-req', selectedEmojis);
                                                 }
                                             }} 
-                                            className={`${emojiImportTileClass} !bg-red-50 !border-red-400 !text-red-500`}
+                                            disabled={selectedEmojis.length === 0}
+                                            className={`${emojiImportTileClass} !bg-red-50 !border-red-400 !text-red-500 ${selectedEmojis.length === 0 ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'}`}
                                         >
                                             <Trash className="w-8 h-8" weight="fill" />
                                         </button>
