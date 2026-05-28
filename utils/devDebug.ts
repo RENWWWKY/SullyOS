@@ -260,29 +260,33 @@ export function appendDevDebugLlmLog(input: {
     response?: unknown;
     error?: unknown;
 }): void {
-    if (!isLlmLogCaptureEnabled()) return;
+    try {
+        if (!isLlmLogCaptureEnabled()) return;
 
-    const entry: DevDebugLlmLogEntry = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        timestamp: new Date().toISOString(),
-        url: input.url,
-        method: input.method,
-        status: input.status,
-        request: safeJsonValue(parseRequestBody(input.requestBody)),
-        response: input.response === undefined ? undefined : safeJsonValue(input.response),
-        error: input.error
-            ? {
-                name: (input.error as any)?.name,
-                message: (input.error as any)?.message || String(input.error),
-            }
-            : undefined,
-    };
+        const entry: DevDebugLlmLogEntry = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            timestamp: new Date().toISOString(),
+            url: input.url,
+            method: input.method,
+            status: input.status,
+            request: safeJsonValue(parseRequestBody(input.requestBody)),
+            response: input.response === undefined ? undefined : safeJsonValue(input.response),
+            error: input.error
+                ? {
+                    name: (input.error as any)?.name,
+                    message: (input.error as any)?.message || String(input.error),
+                }
+                : undefined,
+        };
 
-    const next = [...readPersistedLlmLog(), entry].slice(-MAX_LLM_LOG_ENTRIES);
-    while (next.length > 1 && JSON.stringify(next).length > MAX_LLM_LOG_STORAGE_CHARS) {
-        next.shift();
+        const next = [...readPersistedLlmLog(), entry].slice(-MAX_LLM_LOG_ENTRIES);
+        while (next.length > 1 && JSON.stringify(next).length > MAX_LLM_LOG_STORAGE_CHARS) {
+            next.shift();
+        }
+        persistLlmLog(next);
+    } catch (e) {
+        console.error('Failed to append dev debug LLM log', e);
     }
-    persistLlmLog(next);
 }
 
 export function formatDevDebugLlmLog(): string {
