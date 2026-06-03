@@ -3,12 +3,14 @@ import { useOS } from '../context/OSContext';
 import {
     ArrowLeft, Plus, Trash, BookOpen, Planet, Clock, Play, CaretRight, X,
     UploadSimple, PencilSimple, FlipHorizontal, CaretLeft, Sparkle,
+    CircleNotch, TextAa, Palette,
 } from '@phosphor-icons/react';
 import { CreatorIframe, type ChibiResult } from '../components/Like520Event';
 import { DB } from '../utils/db';
 import { VRScheduler } from '../utils/vrWorld/scheduler';
 import { VR_ROOMS, getRoom, VR_DEFAULT_INTERVAL_MIN } from '../utils/vrWorld/constants';
 import { buildNovelAsync, groupAnnotationsBySeg, getBookmark } from '../utils/vrWorld/novel';
+import { decodeTextFile } from '../utils/vrWorld/decodeText';
 import type { CharacterProfile, VRWorldNovel, VRNovelAnnotation, VRCardMeta, VRRoomId } from '../types';
 
 // ============ chibi 形象解析（vrState.chibi → 立绘 → 头像） ============
@@ -481,46 +483,105 @@ const LibraryView: React.FC<{
     </div>
 );
 
-// ============ 阅读器 ============
+// ============ 阅读器主题 ============
+interface ReaderTheme { id: string; name: string; bg: string; paper: string; text: string; sub: string; accent: string; annBg: string; }
+const READER_THEMES: ReaderTheme[] = [
+    { id: 'paper', name: '纸白', bg: '#e9e3d6', paper: '#f7f3ea', text: '#322d25', sub: '#8a7f6c', accent: '#a0673b', annBg: '#efe7d4' },
+    { id: 'sepia', name: '羊皮', bg: '#d8c6a3', paper: '#ece0c6', text: '#48381f', sub: '#917a52', accent: '#8a5a2b', annBg: '#e2d3b2' },
+    { id: 'green', name: '护眼', bg: '#bcd4bc', paper: '#d6e8d4', text: '#26331f', sub: '#5d7350', accent: '#3f6b3a', annBg: '#cadfc6' },
+    { id: 'night', name: '夜阅', bg: '#15161a', paper: '#1f2128', text: '#cfc9bd', sub: '#7d7869', accent: '#c0915a', annBg: '#262932' },
+    { id: 'ink', name: '墨黑', bg: '#0a0a0e', paper: '#131319', text: '#b9b4ab', sub: '#6f6a78', accent: '#8b9bff', annBg: '#1a1a24' },
+];
+const FONT_SIZES = [13, 15, 17, 20];
+const READER_THEME_KEY = 'vr_reader_theme';
+const READER_FONT_KEY = 'vr_reader_font';
+
 const ReaderModal: React.FC<{ novel: VRWorldNovel; characters: CharacterProfile[]; onClose: () => void; }> = ({ novel, characters, onClose }) => {
     const [annotations, setAnnotations] = useState<VRNovelAnnotation[]>([]);
     const [page, setPage] = useState(0);
+    const [themeId, setThemeId] = useState<string>(() => localStorage.getItem(READER_THEME_KEY) || 'paper');
+    const [fontSize, setFontSize] = useState<number>(() => Number(localStorage.getItem(READER_FONT_KEY)) || 15);
+    const [showCtl, setShowCtl] = useState(false);
+    const scrollRef = useRef<HTMLDivElement>(null);
     const PAGE_SIZE = 8;
+
     useEffect(() => { void (async () => setAnnotations(await DB.getVRAnnotations(novel.id)))(); }, [novel.id]);
+    useEffect(() => { localStorage.setItem(READER_THEME_KEY, themeId); }, [themeId]);
+    useEffect(() => { localStorage.setItem(READER_FONT_KEY, String(fontSize)); }, [fontSize]);
+    useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0; }, [page]);
+
+    const theme = READER_THEMES.find(t => t.id === themeId) || READER_THEMES[0];
     const annBySeg = useMemo(() => groupAnnotationsBySeg(annotations), [annotations]);
     const totalPages = Math.max(1, Math.ceil(novel.segments.length / PAGE_SIZE));
     const segs = novel.segments.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
     const nameOf = (id: string) => characters.find(c => c.id === id)?.name;
+
     return (
-        <div className="fixed inset-0 z-50 flex flex-col" style={{ background: 'linear-gradient(180deg,#1b1838 0%,#0d0c1c 100%)' }}>
-            <div className="flex items-center gap-2 px-4 pt-3 pb-2 shrink-0 border-b border-white/10">
-                <button onClick={onClose} className="p-1.5 -ml-1.5 rounded-full active:bg-white/10 text-white"><X size={20} weight="bold" /></button>
-                <div className="min-w-0">
-                    <div className="text-[14px] font-bold text-white truncate">{novel.title}</div>
-                    <div className="text-[10px] text-indigo-300/60">第 {page * PAGE_SIZE + 1}~{Math.min((page + 1) * PAGE_SIZE, novel.segments.length)} 段 / 共 {novel.segments.length} 段</div>
+        <div className="fixed inset-0 z-50 flex flex-col" style={{ background: theme.bg }}>
+            {/* 顶栏 */}
+            <div className="flex items-center gap-2 px-4 pt-3 pb-2 shrink-0" style={{ borderBottom: `1px solid ${theme.accent}22` }}>
+                <button onClick={onClose} className="p-1.5 -ml-1.5 rounded-full active:bg-black/5" style={{ color: theme.text }}><X size={20} weight="bold" /></button>
+                <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-bold truncate" style={{ color: theme.text }}>{novel.title}</div>
+                    <div className="text-[10px]" style={{ color: theme.sub }}>第 {page * PAGE_SIZE + 1}~{Math.min((page + 1) * PAGE_SIZE, novel.segments.length)} 段 / 共 {novel.segments.length} 段</div>
                 </div>
+                <button onClick={() => setShowCtl(s => !s)} className="p-1.5 rounded-full active:bg-black/5" style={{ color: theme.accent }}><Palette size={18} weight="bold" /></button>
             </div>
-            <div className="flex-1 overflow-y-auto px-4 py-3 text-indigo-50/90" style={{ fontFamily: `'Noto Serif','Songti SC','Georgia',serif` }}>
+
+            {/* 主题 / 字号控制条 */}
+            {showCtl && (
+                <div className="px-4 py-2.5 shrink-0 space-y-2.5" style={{ background: theme.paper, borderBottom: `1px solid ${theme.accent}22` }}>
+                    <div className="flex items-center gap-2">
+                        <Palette size={14} style={{ color: theme.sub }} />
+                        <div className="flex gap-1.5 flex-1">
+                            {READER_THEMES.map(t => (
+                                <button key={t.id} onClick={() => setThemeId(t.id)}
+                                    className="flex-1 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold transition-all"
+                                    style={{ background: t.paper, color: t.text, border: themeId === t.id ? `2px solid ${t.accent}` : `1px solid ${t.accent}33` }}>
+                                    {t.name}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <TextAa size={14} style={{ color: theme.sub }} />
+                        <div className="flex gap-1.5">
+                            {FONT_SIZES.map(fs => (
+                                <button key={fs} onClick={() => setFontSize(fs)}
+                                    className="w-9 h-7 rounded-lg font-bold transition-all"
+                                    style={{ background: fontSize === fs ? theme.accent : 'transparent', color: fontSize === fs ? theme.paper : theme.sub, border: `1px solid ${theme.accent}44`, fontSize: Math.min(fs, 15) }}>
+                                    A
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 正文 */}
+            <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4" style={{ background: theme.bg, fontFamily: `'Noto Serif SC','Songti SC','Noto Serif','Georgia',serif` }}>
                 {segs.map(seg => {
                     const anns = annBySeg.get(seg.idx) || [];
                     return (
-                        <div key={seg.idx} className="mb-4">
-                            <p className="text-[13px] leading-[1.8] whitespace-pre-wrap">{seg.text}</p>
+                        <div key={seg.idx} className="mb-5">
+                            <p className="whitespace-pre-wrap" style={{ color: theme.text, fontSize, lineHeight: 1.9, textIndent: '2em' }}>{seg.text}</p>
                             {anns.map(a => (
-                                <div key={a.id} className="mt-1.5 ml-3 pl-2.5 border-l-2 border-amber-300/50 text-[11.5px] leading-snug">
-                                    <span className="font-bold text-amber-200">{nameOf(a.authorId) || a.authorName}</span>
-                                    {a.targetAnnotationId && <span className="text-indigo-300/50"> 回应</span>}
-                                    <span className="text-indigo-100/80">：{a.content}</span>
+                                <div key={a.id} className="mt-2 ml-2 rounded-lg px-3 py-2" style={{ background: theme.annBg, borderLeft: `3px solid ${theme.accent}` }}>
+                                    <span className="font-bold" style={{ color: theme.accent, fontSize: fontSize - 3 }}>{nameOf(a.authorId) || a.authorName}</span>
+                                    {a.targetAnnotationId && <span style={{ color: theme.sub, fontSize: fontSize - 3 }}> 回应</span>}
+                                    <span style={{ color: theme.text, fontSize: fontSize - 3 }}>：{a.content}</span>
                                 </div>
                             ))}
                         </div>
                     );
                 })}
             </div>
-            <div className="flex items-center justify-between px-4 py-2.5 shrink-0 border-t border-white/10">
-                <button disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))} className="text-[12px] text-indigo-300 disabled:opacity-30 font-semibold">‹ 上一页</button>
-                <span className="text-[11px] text-indigo-300/60">{page + 1} / {totalPages}</span>
-                <button disabled={page >= totalPages - 1} onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} className="text-[12px] text-indigo-300 disabled:opacity-30 font-semibold">下一页 ›</button>
+
+            {/* 翻页 */}
+            <div className="flex items-center justify-between px-5 py-2.5 shrink-0" style={{ background: theme.paper, borderTop: `1px solid ${theme.accent}22` }}>
+                <button disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))} className="text-[12px] disabled:opacity-30 font-semibold" style={{ color: theme.accent }}>‹ 上一页</button>
+                <span className="text-[11px]" style={{ color: theme.sub }}>{page + 1} / {totalPages}</span>
+                <button disabled={page >= totalPages - 1} onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} className="text-[12px] disabled:opacity-30 font-semibold" style={{ color: theme.accent }}>下一页 ›</button>
             </div>
         </div>
     );
@@ -537,28 +598,33 @@ const UploadModal: React.FC<{
     const [summary, setSummary] = useState('');
     // 手动粘贴的小段文本走 state；大文件内容只存 ref，不进 textarea（否则 12MB 会冻 UI）
     const [pasteText, setPasteText] = useState('');
-    const [fileInfo, setFileInfo] = useState<{ name: string; chars: number; preview: string } | null>(null);
+    const [fileInfo, setFileInfo] = useState<{ name: string; chars: number; preview: string; encoding: string } | null>(null);
     const fileContentRef = useRef<string>('');
     const fileRef = useRef<HTMLInputElement>(null);
+    const [reading, setReading] = useState(false);
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState(0);
 
-    const onFile = (f: File | undefined) => {
+    const onFile = async (f: File | undefined) => {
         if (!f) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-            const content = String(reader.result || '');
+        setReading(true);
+        try {
+            const { text: content, encoding } = await decodeTextFile(f);
             fileContentRef.current = content;
             setFileInfo({
                 name: f.name,
                 chars: content.length,
                 preview: content.slice(0, 300).replace(/\s+/g, ' ').trim(),
+                encoding,
             });
             setPasteText(''); // 文件优先，清掉粘贴框
             if (!title.trim()) setTitle(f.name.replace(/\.(txt|text)$/i, ''));
-        };
-        reader.onerror = () => onError('文件读取失败');
-        reader.readAsText(f, 'utf-8');
+        } catch (e) {
+            console.error('[VRWorld] decode file failed', e);
+            onError('文件读取失败');
+        } finally {
+            setReading(false);
+        }
     };
 
     const clearFile = () => {
@@ -600,11 +666,16 @@ const UploadModal: React.FC<{
                 </div>
 
                 <input ref={fileRef} type="file" accept=".txt,text/plain" className="hidden" onChange={e => onFile(e.target.files?.[0])} />
-                {fileInfo ? (
+                {reading ? (
+                    <div className="w-full rounded-xl border border-indigo-300/30 py-5 mb-3 flex items-center justify-center gap-2 text-indigo-100/90">
+                        <CircleNotch size={18} weight="bold" className="animate-spin" /> 读取并识别编码中…
+                    </div>
+                ) : fileInfo ? (
                     <div className="rounded-xl border border-indigo-300/30 p-3 mb-3 bg-white/5">
                         <div className="flex items-center gap-2">
                             <BookOpen size={16} weight="fill" className="text-amber-200 shrink-0" />
                             <span className="text-[12.5px] text-white font-semibold truncate flex-1">{fileInfo.name}</span>
+                            <span className="text-[8.5px] text-indigo-300/60 border border-indigo-300/30 rounded px-1 uppercase">{fileInfo.encoding}</span>
                             {!busy && <button onClick={clearFile} className="text-indigo-300/60 p-1"><X size={14} /></button>}
                         </div>
                         <div className="text-[10px] text-indigo-300/60 mt-1">{fileInfo.chars.toLocaleString()} 字 · 预计 ~{Math.ceil(fileInfo.chars / 400).toLocaleString()} 段</div>

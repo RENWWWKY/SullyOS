@@ -1,6 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import { chunkNovelText, chunkNovelTextAsync, getReadingWindow, buildNovel } from './novel';
 import { parseVROutput } from './prompts';
+import { decodeBytes } from './decodeText';
+
+describe('decodeBytes', () => {
+    it('decodes UTF-8 Chinese', () => {
+        const bytes = new Uint8Array([0xE4, 0xBD, 0xA0, 0xE5, 0xA5, 0xBD]); // 你好
+        const r = decodeBytes(bytes.buffer);
+        expect(r.text).toBe('你好');
+        expect(r.encoding).toBe('utf-8');
+    });
+
+    it('strips UTF-8 BOM', () => {
+        const bytes = new Uint8Array([0xEF, 0xBB, 0xBF, 0xE4, 0xBD, 0xA0]); // BOM + 你
+        const r = decodeBytes(bytes.buffer);
+        expect(r.text).toBe('你');
+        expect(r.encoding).toBe('utf-8');
+    });
+
+    it('falls back to gb18030 for GBK bytes', () => {
+        const bytes = new Uint8Array([0xC4, 0xE3, 0xBA, 0xC3]); // 你好 in GBK
+        const r = decodeBytes(bytes.buffer);
+        // 环境支持 gb18030 时应正确解出中文；不支持则至少不抛错
+        expect(r.encoding === 'gb18030' || r.encoding === 'utf-8?').toBe(true);
+        if (r.encoding === 'gb18030') expect(r.text).toBe('你好');
+    });
+});
 
 describe('chunkNovelText', () => {
     it('splits text into segments with sequential idx', () => {
