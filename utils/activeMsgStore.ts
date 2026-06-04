@@ -37,21 +37,24 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 const openDB = (): Promise<IDBDatabase> => {
   if (dbPromise) return dbPromise;
 
-  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+  const promise = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     // onblocked 不是终态: 先 reject, 但底层 open request 还活着, 占用方关闭后仍会触发
     // onsuccess。用 settled 标记 promise 已 settle, 让迟到的连接被 close 而非泄漏成
     // 一条没人持有、却能 block 后续升级 / 删库的孤儿连接。
+    // 清缓存一律先比对 dbPromise === promise: onclose/onerror 等都是异步回调, 若期间已
+    // 重开并缓存了新 promise (如 SW withInboxTx 强关后重试), 陈旧连接的回调不能把新单例
+    // 误清, 否则又凭空多开一条连接 (见 amsg-sw 2.3.0 同款守卫)。
     let settled = false;
 
     request.onerror = () => {
-      dbPromise = null; // 打开失败别缓存 rejected promise
+      if (dbPromise === promise) dbPromise = null; // 打开失败别缓存 rejected promise
       settled = true;
       reject(request.error);
     };
     request.onblocked = () => {
       // SW or another tab holds an older version; can't upgrade. Reject so callers don't hang.
-      dbPromise = null;
+      if (dbPromise === promise) dbPromise = null;
       settled = true;
       reject(new Error('IndexedDB open blocked — close other tabs / unregister SW and retry'));
     };
@@ -66,10 +69,10 @@ const openDB = (): Promise<IDBDatabase> => {
       // 另一个 tab / SW 升级版本时主动 close 让位 + 清缓存; 强制关闭时也清缓存自愈。
       db.onversionchange = () => {
         db.close();
-        dbPromise = null;
+        if (dbPromise === promise) dbPromise = null;
       };
       db.onclose = () => {
-        dbPromise = null;
+        if (dbPromise === promise) dbPromise = null;
       };
       resolve(db);
     };
@@ -99,7 +102,8 @@ const openDB = (): Promise<IDBDatabase> => {
     };
   });
 
-  return dbPromise;
+  dbPromise = promise;
+  return promise;
 };
 
 const getKv = async <T>(id: string): Promise<T | null> => {

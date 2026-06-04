@@ -1380,16 +1380,16 @@ function syncProactive(configs) {
 var inboxDbPromise = null;
 function openInboxDb() {
   if (inboxDbPromise) return inboxDbPromise;
-  inboxDbPromise = new Promise((resolve, reject) => {
+  const promise = new Promise((resolve, reject) => {
     const request = indexedDB.open(ACTIVE_MSG_DB_NAME, ACTIVE_MSG_DB_VERSION);
     let settled = false;
     request.onerror = () => {
-      inboxDbPromise = null;
+      if (inboxDbPromise === promise) inboxDbPromise = null;
       settled = true;
       reject(request.error);
     };
     request.onblocked = () => {
-      inboxDbPromise = null;
+      if (inboxDbPromise === promise) inboxDbPromise = null;
       settled = true;
       reject(new Error("IndexedDB open blocked (older version still open elsewhere)"));
     };
@@ -1404,10 +1404,10 @@ function openInboxDb() {
       }
       db.onversionchange = () => {
         db.close();
-        inboxDbPromise = null;
+        if (inboxDbPromise === promise) inboxDbPromise = null;
       };
       db.onclose = () => {
-        inboxDbPromise = null;
+        if (inboxDbPromise === promise) inboxDbPromise = null;
       };
       resolve(db);
     };
@@ -1427,7 +1427,8 @@ function openInboxDb() {
       }
     };
   });
-  return inboxDbPromise;
+  inboxDbPromise = promise;
+  return promise;
 }
 function isInboxConnectionClosingError(error) {
   if (!error || typeof error !== "object") return false;

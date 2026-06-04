@@ -48,6 +48,19 @@ describe('openDB 失效自愈', () => {
     const b = await openDB();
     expect(b).not.toBe(a);
   });
+
+  it('陈旧连接迟到的 onclose 不误清已重开的新单例 (=== promise 守卫)', async () => {
+    const a = await openDB();
+    // 重开: 触发 a 的 onversionchange (会 close a + 清缓存), 再 openDB 拿到新单例 b
+    (a as unknown as { onversionchange?: (e: Event) => void }).onversionchange?.(new Event('versionchange'));
+    const b = await openDB();
+    expect(b).not.toBe(a);
+    // 此刻才迟到触发 a (陈旧连接) 的 onclose —— 不带守卫会把 b 误清成 null，
+    // 下次 openDB 凭空多开一条连接 (正是本次要消灭的 churn)。带守卫则 b 保留。
+    (a as unknown as { onclose?: (e: Event) => void }).onclose?.(new Event('close'));
+    const c = await openDB();
+    expect(c).toBe(b);
+  });
 });
 
 describe('DB.deleteDB', () => {

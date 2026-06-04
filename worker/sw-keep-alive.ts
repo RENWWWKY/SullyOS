@@ -218,22 +218,25 @@ let inboxDbPromise: Promise<IDBDatabase> | null = null;
 function openInboxDb(): Promise<IDBDatabase> {
   if (inboxDbPromise) return inboxDbPromise;
 
-  inboxDbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+  const promise = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(ACTIVE_MSG_DB_NAME, ACTIVE_MSG_DB_VERSION);
     // onblocked 不是终态: 先 reject, 但底层 open request 还活着, 占用方关闭后仍会触发
     // onsuccess。用 settled 标记 promise 已 settle, 让迟到的连接被 close 而非泄漏成
     // 一条没人持有、却能 block 后续升级 / 删库的孤儿连接。
+    // 清缓存一律先比对 inboxDbPromise === promise: onclose/onerror 都是异步回调 —— 尤其
+    // withInboxTx 强关后会清缓存并重开新 promise, 此时陈旧连接的迟到 onclose 不能把新单例
+    // 误清 (否则又凭空多开一条连接, 正是本次要消灭的 churn; 见 amsg-sw 2.3.0 同款守卫)。
     let settled = false;
 
     request.onerror = () => {
-      inboxDbPromise = null; // 打开失败别缓存 rejected promise
+      if (inboxDbPromise === promise) inboxDbPromise = null; // 打开失败别缓存 rejected promise
       settled = true;
       reject(request.error);
     };
     request.onblocked = () => {
       // Main thread or another SW connection holds the DB at a lower version and isn't closing.
       // Push will fail to persist; reject rather than hang forever so event.waitUntil unblocks.
-      inboxDbPromise = null;
+      if (inboxDbPromise === promise) inboxDbPromise = null;
       settled = true;
       reject(new Error('IndexedDB open blocked (older version still open elsewhere)'));
     };
@@ -248,10 +251,10 @@ function openInboxDb(): Promise<IDBDatabase> {
       // 主线程升级版本时 close 让位 + 清缓存; 浏览器强制关闭连接时也清缓存自愈。
       db.onversionchange = () => {
         db.close();
-        inboxDbPromise = null;
+        if (inboxDbPromise === promise) inboxDbPromise = null;
       };
       db.onclose = () => {
-        inboxDbPromise = null;
+        if (inboxDbPromise === promise) inboxDbPromise = null;
       };
       resolve(db);
     };
@@ -275,7 +278,8 @@ function openInboxDb(): Promise<IDBDatabase> {
     };
   });
 
-  return inboxDbPromise;
+  inboxDbPromise = promise;
+  return promise;
 }
 
 function isInboxConnectionClosingError(error: unknown): boolean {

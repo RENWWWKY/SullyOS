@@ -79,16 +79,18 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 export const openDB = (): Promise<IDBDatabase> => {
   if (dbPromise) return dbPromise;
 
-  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+  const promise = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     // onblocked 不是终态: 它先 reject, 但底层 open request 还活着, 等占用方关闭后仍会
     // 触发 onsuccess。用 settled 标记 promise 已 settle, 让那条迟到的连接被 close 掉而
     // 不是泄漏成一条没人持有、却能 block 后续升级/删库的孤儿连接。
+    // 清缓存一律先比对 dbPromise === promise: onclose/onerror 等都是异步回调, 期间若已
+    // 重开并缓存了新 promise, 陈旧连接的回调不能误清新单例 (否则又凭空多开一条连接)。
     let settled = false;
 
     request.onerror = () => {
         console.error("DB Open Error:", request.error);
-        dbPromise = null; // 打开失败别把 rejected promise 缓存住, 否则之后每次 openDB 都拿到同一个失败
+        if (dbPromise === promise) dbPromise = null; // 打开失败别把 rejected promise 缓存住
         settled = true;
         reject(request.error);
     };
@@ -105,7 +107,7 @@ export const openDB = (): Promise<IDBDatabase> => {
         // 顺手清缓存, 下次 openDB 重开到新版本。
         db.onversionchange = () => {
             db.close();
-            dbPromise = null;
+            if (dbPromise === promise) dbPromise = null;
         };
         // Chromium 因 backing store 出错等原因强制关闭连接时触发 —— 清缓存自愈,
         // 避免后续操作一直复用一条已死的连接。
@@ -118,7 +120,7 @@ export const openDB = (): Promise<IDBDatabase> => {
         // 的竞态会让 push 静默丢失 → 主线程超时, 所以那边 (worker/sw-keep-alive.ts 的
         // withInboxTx) 单独补了「InvalidStateError 清缓存重开一次」的事务级兜底。
         db.onclose = () => {
-            dbPromise = null;
+            if (dbPromise === promise) dbPromise = null;
         };
         resolve(db);
     };
@@ -127,7 +129,7 @@ export const openDB = (): Promise<IDBDatabase> => {
         // 另一个 tab 仍持有旧版本连接, 升级被挡。清缓存 + reject, 别让调用方无限挂着;
         // 与 activeMsgStore / sw-keep-alive 的 openDB 一致, 对方 tab 关闭后下次调用可重试。
         console.warn('[DB] open blocked —— 另一个 tab 仍持有旧版本连接未关闭');
-        dbPromise = null;
+        if (dbPromise === promise) dbPromise = null;
         settled = true;
         reject(new Error('IndexedDB open blocked —— 关闭其它标签页后重试'));
     };
@@ -327,7 +329,8 @@ export const openDB = (): Promise<IDBDatabase> => {
     };
   });
 
-  return dbPromise;
+  dbPromise = promise;
+  return promise;
 };
 
 export const DB = {
