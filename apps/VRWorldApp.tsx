@@ -12,11 +12,33 @@ import { VRScheduler } from '../utils/vrWorld/scheduler';
 import { VR_ROOMS, getRoom, VR_DEFAULT_INTERVAL_MIN } from '../utils/vrWorld/constants';
 import { buildNovelAsync, groupAnnotationsBySeg, getBookmark } from '../utils/vrWorld/novel';
 import { decodeTextFile } from '../utils/vrWorld/decodeText';
-import { PostOffice, type RemoteReply } from '../utils/vrWorld/postOffice';
+import { PostOffice, MAX_LETTER_CHARS, type RemoteReply } from '../utils/vrWorld/postOffice';
 import { getVRApi, setVRApi, getVRApiLog, clearVRApiLog, type VRApiCall } from '../utils/vrWorld/vrApi';
 import { safeResponseJson } from '../utils/safeApi';
 
 const genLocalId = (p: string) => `${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+
+// ── 邮局寄信「日额度」：纯前端软计数，给后端减负（不追求精准，清数据会重置）──
+// 从寄出第一封开始计时，24h 一个滚动窗口，窗口内最多 PO_DAILY_LIMIT 封，过期自动归零。
+const PO_DAILY_LIMIT = 15;
+const PO_QUOTA_KEY = 'vr_po_send_quota';
+const PO_WINDOW_MS = 24 * 3600_000;
+const charLen = (s: string) => [...(s || '')].length;
+const readSendQuota = (): { windowStart: number; count: number } => {
+    try {
+        const raw = JSON.parse(localStorage.getItem(PO_QUOTA_KEY) || 'null');
+        if (raw && typeof raw.windowStart === 'number' && typeof raw.count === 'number'
+            && Date.now() - raw.windowStart < PO_WINDOW_MS) return raw;
+    } catch { /* ignore */ }
+    return { windowStart: 0, count: 0 };
+};
+const bumpSendQuota = (n: number) => {
+    const cur = readSendQuota();
+    const windowStart = cur.windowStart || Date.now();
+    try { localStorage.setItem(PO_QUOTA_KEY, JSON.stringify({ windowStart, count: cur.count + n })); } catch { /* ignore */ }
+};
+const quotaResetHours = (windowStart: number) =>
+    windowStart ? Math.max(1, Math.ceil((windowStart + PO_WINDOW_MS - Date.now()) / 3600_000)) : 24;
 
 /** 气泡/动态里去掉开头多余的"自己名字"主语（角色播报本就该省略主语）。 */
 const stripSelfName = (text: string | undefined, name: string | undefined): string => {
@@ -546,10 +568,15 @@ function PagedList<T>({ items, perPage, render }: { items: T[]; perPage: number;
 // 待寄出信件行（长按弹出 编辑/删除）
 const PendingLetterRow: React.FC<{ l: VRLetter; onMenu: (l: VRLetter) => void }> = ({ l, onMenu }) => {
     const { pressing, handlers } = useLongPress(() => onMenu(l), 500);
+    const len = charLen(l.content);
+    const over = len > MAX_LETTER_CHARS;
     return (
         <div {...handlers} className={`rounded-lg p-2 mb-1.5 text-[11.5px] text-amber-50/90 transition-transform ${pressing ? 'scale-[0.97]' : ''}`}
-            style={{ background: pressing ? 'rgba(244,180,90,0.16)' : 'rgba(255,255,255,.05)', border: `1px solid ${pressing ? 'rgba(244,180,90,0.4)' : 'transparent'}` }}>
-            <div className="flex items-center gap-1.5 mb-0.5"><span className="text-amber-200/90 font-bold text-[10.5px]">{l.pen}</span><span className="ml-auto text-white/25 text-[9px]">长按编辑/删除</span></div>
+            style={{ background: pressing ? 'rgba(244,180,90,0.16)' : 'rgba(255,255,255,.05)', border: `1px solid ${over ? 'rgba(244,120,90,0.5)' : pressing ? 'rgba(244,180,90,0.4)' : 'transparent'}` }}>
+            <div className="flex items-center gap-1.5 mb-0.5">
+                <span className="text-amber-200/90 font-bold text-[10.5px]">{l.pen}</span>
+                <span className={`ml-auto text-[9px] ${over ? 'text-red-300 font-semibold' : 'text-white/25'}`}>{over ? `${len}/${MAX_LETTER_CHARS} 超长·需精简` : '长按编辑/删除'}</span>
+            </div>
             <p className="leading-snug whitespace-pre-wrap">{l.content}</p>
         </div>
     );
@@ -565,11 +592,11 @@ const LetterEditModal: React.FC<{ letter: VRLetter; onSave: (pen: string, conten
                 <div className="text-[13px] font-semibold text-amber-100 mb-2.5" style={{ fontFamily: `'Noto Serif SC',serif` }}>编辑这封信</div>
                 <label className="text-[10px] text-amber-200/60">笔名</label>
                 <input value={pen} onChange={e => setPen(e.target.value)} className="w-full mt-1 mb-2.5 rounded-lg bg-black/25 px-3 py-2 text-[12.5px] text-amber-50 outline-none" style={{ border: '1px solid rgba(220,190,120,.2)' }} />
-                <label className="text-[10px] text-amber-200/60">正文</label>
-                <textarea value={content} onChange={e => setContent(e.target.value)} rows={5} className="w-full mt-1 rounded-lg bg-black/25 px-3 py-2 text-[12.5px] text-amber-50 outline-none resize-none vr-reader-scroll" style={{ border: '1px solid rgba(220,190,120,.2)' }} />
+                <label className="text-[10px] text-amber-200/60 flex items-center">正文<span className={`ml-auto ${charLen(content) > MAX_LETTER_CHARS ? 'text-red-300 font-semibold' : 'text-amber-200/50'}`}>{charLen(content)}/{MAX_LETTER_CHARS}</span></label>
+                <textarea value={content} onChange={e => setContent(e.target.value)} rows={5} className="w-full mt-1 rounded-lg bg-black/25 px-3 py-2 text-[12.5px] text-amber-50 outline-none resize-none vr-reader-scroll" style={{ border: `1px solid ${charLen(content) > MAX_LETTER_CHARS ? 'rgba(244,120,90,.5)' : 'rgba(220,190,120,.2)'}` }} />
                 <div className="flex gap-2 mt-3.5">
                     <button onClick={onCancel} className="flex-1 rounded-full py-2 text-[12.5px] text-white/70" style={{ border: '1px solid rgba(255,255,255,.16)' }}>取消</button>
-                    <button onClick={() => onSave(pen, content)} disabled={!content.trim()} className="flex-1 rounded-full py-2 text-[12.5px] font-semibold text-black disabled:opacity-40" style={{ background: 'linear-gradient(120deg,#f3d08a,#e8b75e)' }}>保存</button>
+                    <button onClick={() => onSave(pen, content)} disabled={!content.trim() || charLen(content) > MAX_LETTER_CHARS} className="flex-1 rounded-full py-2 text-[12.5px] font-semibold text-black disabled:opacity-40" style={{ background: 'linear-gradient(120deg,#f3d08a,#e8b75e)' }}>保存</button>
                 </div>
             </div>
         </div>
@@ -884,12 +911,31 @@ const PostOfficePanel: React.FC<{ addToast?: (m: string, t?: any) => void; chara
     const archived = letters.filter(l => l.box === 'outbox' && (l.status === 'archived' || l.status === 'sealed'));
 
     const sendOutbox = async () => {
-        if (outQueued.length === 0) return; setBusy('send');
+        if (outQueued.length === 0) return;
+        // A：正文超长就拦下，让用户先编辑精简，不静默截断
+        const tooLong = outQueued.filter(l => charLen(l.content) > MAX_LETTER_CHARS);
+        if (tooLong.length) { addToast?.(`有 ${tooLong.length} 封超过 ${MAX_LETTER_CHARS} 字，请长按编辑精简后再寄`, 'error'); return; }
+        // B：前端日额度（给后端减负），额度不够就只寄能寄的那几封，其余留队列
+        const q = readSendQuota();
+        const remaining = Math.max(0, PO_DAILY_LIMIT - q.count);
+        if (remaining <= 0) { addToast?.(`今天已寄满 ${PO_DAILY_LIMIT} 封，约 ${quotaResetHours(q.windowStart)} 小时后恢复`, 'info'); return; }
+        const batch = outQueued.slice(0, remaining);
+        const heldBack = outQueued.length - batch.length;
+        setBusy('send');
         try {
-            const ids = await PostOffice.uploadLetters(outQueued.map(l => ({ pen: l.pen, content: l.content })));
-            await DB.saveVRLetters(outQueued.map((l, i) => ({ ...l, status: 'sent', remoteId: ids[i], sentAt: Date.now() })));
-            await load(); addToast?.(`已寄出 ${ids.length} 封漂流信`, 'success');
-        } catch (e: any) { addToast?.('寄出失败：' + (e?.message || '检查网络'), 'error'); } finally { setBusy(null); }
+            const ids = await PostOffice.uploadLetters(batch.map(l => ({ pen: l.pen, content: l.content })));
+            await DB.saveVRLetters(batch.map((l, i) => ({ ...l, status: 'sent', remoteId: ids[i], sentAt: Date.now() })));
+            bumpSendQuota(batch.length);
+            await load();
+            addToast?.(heldBack > 0
+                ? `已寄出 ${ids.length} 封，今日额度用完，还剩 ${heldBack} 封约 ${quotaResetHours(readSendQuota().windowStart)} 小时后再寄`
+                : `已寄出 ${ids.length} 封漂流信`, 'success');
+        } catch (e: any) {
+            const msg = /429|rate limit/i.test(e?.message || '')
+                ? '后端每 5 小时限 5 封，刚寄太猛被挡了，待会儿再寄剩下的（信都还在队列）'
+                : '寄出失败：' + (e?.message || '检查网络');
+            addToast?.(msg, 'error');
+        } finally { setBusy(null); }
     };
     const refreshInbox = async () => {
         setBusy('inbox');
@@ -987,6 +1033,7 @@ const PostOfficePanel: React.FC<{ addToast?: (m: string, t?: any) => void; chara
                     {outQueued.length === 0 ? <p className="text-[10.5px] text-white/35">角色在邮局写的漂流信会排在这里，你确认后一键寄出。寄出时笔名会自动匿名。</p> : (
                         <>
                             <PagedList items={outQueued} perPage={4} render={l => <PendingLetterRow key={l.id} l={l} onMenu={setMenuFor} />} />
+                            <div className="text-[9.5px] text-white/35 text-right mb-1">今日已寄 {readSendQuota().count}/{PO_DAILY_LIMIT}</div>
                             <button onClick={sendOutbox} disabled={!!busy} className="w-full mt-1 rounded-full py-2 text-[12px] font-semibold text-black disabled:opacity-40" style={{ background: 'linear-gradient(120deg,#f3d08a,#e8b75e)' }}>{busy === 'send' ? '寄出中…' : `一键寄出（${outQueued.length}）`}</button>
                         </>
                     )}
