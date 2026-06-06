@@ -1572,9 +1572,9 @@ const RoomScene: React.FC<{
                                                     <span className="text-[12px] font-bold" style={{ color: nameColor }}>{name}</span>
                                                     <span className="text-[8.5px] text-white/30 tabular-nums">{new Date(head.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                                                 </div>
-                                                <div className="mt-0.5 space-y-0.5">
+                                                <div className="mt-1 space-y-1">
                                                     {g.map(m => (
-                                                        <div key={m.id} className="text-[12.5px] leading-relaxed text-white/85">
+                                                        <div key={m.id} className="text-[12.5px] leading-relaxed text-white/85 px-2.5 py-1 rounded-lg w-fit max-w-full" style={{ background: 'rgba(255,255,255,0.055)' }}>
                                                             {m.replyToName && <span className="text-[10px] text-sky-200/45 mr-1">↩{m.replyToName}</span>}
                                                             {m.content}
                                                         </div>
