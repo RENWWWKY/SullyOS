@@ -855,6 +855,10 @@ export interface VRActorNote {
     note: string;
     /** 角色按自己本色重写过的"我这部分台词 / 怎么演"（可空 = 照原本演） */
     lines?: string;
+    /** 绝对禁忌：导演绝不能让该角色做的事（硬红线，可空） */
+    taboo?: string;
+    /** 给导演的写作指导（这条线该怎么处理，可空） */
+    direction?: string;
     /** 态度光谱：欣然 / 配合 / 勉强 / 隐忍 / 抵触 / 拒演（按角色性子自然落点，不必都硬刚） */
     attitude?: string;
     /** 是否配合（由 attitude 推导：抵触/拒演 = false） */

@@ -96,7 +96,7 @@ async function perRoleNotes(script: VRScript, cast: VRCastAssign[], charAssigns:
             const userTurn = buildActorReviewTurn(script.title, script.logline, script.body, a.roleName, line, char.name);
             const out = await chat(api, [{ role: 'system', content: payload.systemPrompt }, ...payload.cleanedApiMessages, { role: 'user', content: userTurn }]);
             const p = parseActorReview(out);
-            return { actorId: char.id, actorName: char.name, roleName: a.roleName, note: p.note, lines: p.lines, attitude: p.attitude, cooperative: p.cooperative };
+            return { actorId: char.id, actorName: char.name, roleName: a.roleName, note: p.note, lines: p.lines, taboo: p.taboo, direction: p.direction, attitude: p.attitude, cooperative: p.cooperative };
         } catch {
             return { actorId: char.id, actorName: char.name, roleName: a.roleName, note: '（没能读完剧本，先就位了）', attitude: '配合', cooperative: true };
         }
@@ -119,8 +119,8 @@ async function batchNotes(script: VRScript, charAssigns: VRCastAssign[], ctx: Th
         parsed = parseActorsBatch(out);
     } catch { /* 失败则全体默认就位 */ }
     return charAssigns.map(a => {
-        const p = parsed[a.actorName] || { note: '（没给具体意见，听导演的）', cooperative: true, lines: undefined, attitude: '配合' };
-        return { actorId: a.actorId, actorName: a.actorName, roleName: a.roleName, note: p.note, lines: p.lines, attitude: p.attitude, cooperative: p.cooperative };
+        const p = parsed[a.actorName] || { note: '（没给具体意见，听导演的）', cooperative: true, lines: undefined, taboo: undefined, direction: undefined, attitude: '配合' };
+        return { actorId: a.actorId, actorName: a.actorName, roleName: a.roleName, note: p.note, lines: p.lines, taboo: p.taboo, direction: p.direction, attitude: p.attitude, cooperative: p.cooperative };
     });
 }
 

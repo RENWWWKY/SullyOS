@@ -612,6 +612,11 @@ const ATTITUDE_GUIDE = [
     `· 抵触：挺不想演这个角色的，想跟导演商量改改或换换；`,
     `· 拒演：这个角色你是真演不来（但你人还在场陪玩，不是闹翻）。`,
     `就像剧本杀里"我来都来了、就是不太想当这个角色"那种感觉——别把它演成跟人结了仇。大多数时候是欣然/配合/勉强。`,
+    ``,
+    `**但有一条红线，要按你的真实设定和关系来判断**：依据你和用户的关系、你和每位同台演员之间本来的关系（有的人本来就是恋人/挚友/家人/宿敌……）。`,
+    `· 如果剧本安排的恰好**符合你们真实的关系**（比如本来就是恋人，剧本让你俩演情侣），那不算踩线，正常演就好；`,
+    `· 只有当剧本**根本违背你的真实设定或真实关系**时才算 OOC 红线——最典型：硬把没有半点暧昧的两个人强凑成恋人、强行 CP、强行扭曲你的立场或人格。`,
+    `踩了红线就别再"勉强忍忍"——你完全可以**翻脸、当场拒演、强烈要求彻底改掉这段、或阴阳怪气/拆台地演**，把抗拒摆到明面上。这种根本性 OOC 不在"陪玩"范围内，该塔塔开就塔塔开（态度选「抵触」或「拒演」）。`,
 ].join('\n');
 
 /** 演员读剧本 → 给导演意见（逐角色模式：一次一个演员）。 */
@@ -632,6 +637,8 @@ export function buildActorReviewTurn(title: string, logline: string, body: strin
         `<态度>欣然 / 配合 / 勉强 / 隐忍 / 抵触 / 拒演 里选一个</态度>`,
         `<意见>带着你上面那个态度的语气，说一句此刻的真实想法/吐槽</意见>`,
         `<台词>把你这个角色的台词，按"${selfName}自己的说话方式"重写一遍（连带你想改的动作/神态也写进来，用括号标）。这是你将真正在台上说的话，所以请完整覆盖你的戏份。要是觉得原剧本写得就挺好、照演即可，就只写：照原本</台词>`,
+        `<禁忌>告诉导演：有什么是**绝对不能让你做**的（你的底线/红线，依你的真实设定和关系来定，比如"绝不能让我对没关系的某某动情"）。没有就写：无</禁忌>`,
+        `<给导演>给导演的写作指导：这场戏你这个角色该往哪个方向演、要强调或避免什么、希望你这条线被怎么处理。没有就写：无</给导演>`,
     ].join('\n');
 }
 
@@ -650,13 +657,14 @@ export function buildActorsBatchTurn(title: string, logline: string, body: strin
         ATTITUDE_GUIDE,
         `**态度别整齐划一**：让不同人落在光谱不同点上；但记住大家都是自愿来玩的，别把谁写成跟人结仇。`,
         `每位演员用一个 <演员> 块（标签外不要写别的）。<台词>里把该演员的戏份按 ta 自己的口吻重写（动作用括号标），照原本演就写"照原本"：`,
-        cast.map(c => `<演员 名="${c.actorName}">\n<态度>欣然/配合/勉强/隐忍/抵触/拒演 选一</态度>\n<意见>带该态度语气的一句话</意见>\n<台词>该演员重写后的戏份…或：照原本</台词>\n</演员>`).join('\n'),
+        cast.map(c => `<演员 名="${c.actorName}">\n<态度>欣然/配合/勉强/隐忍/抵触/拒演 选一</态度>\n<意见>带该态度语气的一句话</意见>\n<台词>该演员重写后的戏份…或：照原本</台词>\n<禁忌>绝对不能让 ta 做的事…或：无</禁忌>\n<给导演>给导演的写作指导…或：无</给导演>\n</演员>`).join('\n'),
     ].join('\n');
 }
 
-export interface ParsedActorReview { note: string; lines?: string; attitude: string; cooperative: boolean; }
+export interface ParsedActorReview { note: string; lines?: string; taboo?: string; direction?: string; attitude: string; cooperative: boolean; }
 
 const UNCOOP_ATTITUDES = ['抵触', '拒演', '拒绝'];
+const isEmptyField = (s: string) => !s || /^(无|没有|不改|照原本)$/.test(s);
 
 export function parseActorReview(raw: string): ParsedActorReview {
     const pick = (tag: string) => { const m = raw.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`)); return m ? m[1].trim() : ''; };
@@ -664,9 +672,13 @@ export function parseActorReview(raw: string): ParsedActorReview {
     const note = stripLeakedAttrs(pick('意见')) || '（没什么意见）';
     // 兼容旧标签 <修改>；新标签是 <台词>（演员重写自己的戏份）
     const linesRaw = stripLeakedAttrs(pick('台词') || pick('修改'));
-    const lines = (!linesRaw || /^(照原本|无|没有|不改)$/.test(linesRaw)) ? undefined : linesRaw;
+    const lines = isEmptyField(linesRaw) ? undefined : linesRaw;
+    const tabooRaw = stripLeakedAttrs(pick('禁忌'));
+    const taboo = isEmptyField(tabooRaw) ? undefined : tabooRaw;
+    const dirRaw = stripLeakedAttrs(pick('给导演'));
+    const direction = isEmptyField(dirRaw) ? undefined : dirRaw;
     const cooperative = !UNCOOP_ATTITUDES.some(k => attitude.includes(k));
-    return { note, lines, attitude, cooperative };
+    return { note, lines, taboo, direction, attitude, cooperative };
 }
 
 /** 解析"一次扮演所有演员"的批量意见，按 名= 归位。 */
@@ -685,21 +697,25 @@ export function buildDirectorTurn(
     title: string, logline: string, body: string,
     cast: { roleName: string; actorName: string }[],
     personas: { actorName: string; roleName: string; persona: string }[],
-    notes: { actorName: string; roleName: string; note: string; lines?: string; attitude?: string; cooperative: boolean }[],
+    notes: { actorName: string; roleName: string; note: string; lines?: string; taboo?: string; direction?: string; attitude?: string; cooperative: boolean }[],
     bubbleMax: number,
     userRequirement?: string,
 ): string {
     const roster = cast.map(c => `${c.actorName} 饰 ${c.roleName}`).join('；');
     const cards = personas.map(p => `———— ${p.actorName}（饰 ${p.roleName}）的人设要点 ————\n${p.persona || '（无特别设定）'}`).join('\n\n');
-    const feedback = notes.map(n =>
-        `· ${n.actorName}（${n.roleName}）态度【${n.attitude || (n.cooperative ? '配合' : '抵触')}】：${n.note}\n  ${n.lines ? `ta 按自己口吻重写的戏份（请尽量原样保留这些台词/语气）：\n  「${n.lines.replace(/\n/g, '\n  ')}」` : '（照原剧本演即可）'}`
-    ).join('\n');
+    const feedback = notes.map(n => [
+        `· ${n.actorName}（${n.roleName}）态度【${n.attitude || (n.cooperative ? '配合' : '抵触')}】：${n.note}`,
+        n.lines ? `  ta 按自己口吻重写的戏份（请尽量原样保留这些台词/语气）：\n  「${n.lines.replace(/\n/g, '\n  ')}」` : `  （照原剧本演即可）`,
+        n.taboo ? `  ⛔ 绝对禁忌（硬红线，绝不能违反）：${n.taboo}` : '',
+        n.direction ? `  🎬 给导演的写作指导：${n.direction}` : '',
+    ].filter(Boolean).join('\n')).join('\n');
     return [
         `你是这出舞台剧《${title}》（${logline}）的导演兼旁白。演员与角色：${roster}。`,
         '',
         ...(userRequirement && userRequirement.trim() ? [
             `【用户的硬性要求 · 最高优先级】：${userRequirement.trim()}`,
             `这些是观众一定要看到的内容，**必须在演出中完整体现，绝不能删减、淡化或绕过**。如果某演员不情愿演这部分，也只能用"干巴巴棒读、敷衍、心不在焉、出戏、机械照念"等消极方式来表现 ta 的不情愿——但**该说的台词、该演的情节必须照样出现**。`,
+            `（唯一例外：若该要求本身踩了某演员的【绝对禁忌】或根本 OOC 红线，就用"塔塔开"的方式兑现它——让角色当场抗拒、拆台、演砸、把它演成一场闹剧，而不是让违和剧情弄假成真。）`,
             '',
         ] : []),
         `**参演演员的人设要点（姓名/核心指令/世界观；用来判断"选角贴不贴合角色"，以及在演员没自己写台词时据此补写、别 OOC）**：`,
@@ -712,6 +728,9 @@ export function buildDirectorTurn(
         feedback || '（演员没什么意见）',
         '',
         `**别为了戏剧化而戏剧化**：尊重并放大演员真正投入的情绪——如果有人被这出戏戳中、入戏极深（悲到揪心、燃到起鸡皮、真情流露），就把那份氛围（旁白、停顿、留白、灯光提示）烘托到位；该庄重的别用吐槽冲淡、该哀伤的别强行搞笑。喜怒哀乐，每一种情绪都要给足、给对。`,
+        '',
+        `**绝对禁忌是硬红线**：任何演员标了【绝对禁忌】的，绝不能违反——宁可把相关剧情改得面目全非也要绕开；演员的【写作指导】请尽量采纳。`,
+        `**OOC 红线 · 塔塔开**：如果剧本根本性 OOC、踩了人物真实关系红线（硬把没暧昧的两人凑成恋人、强行 CP、强行扭曲人设），且演员明确抗拒（抵触/拒演/写了禁忌），**别把这种内容硬演成真**——顺着抗拒把这段改得面目全非：当场拒演、罢演风波、集体拆台、跳戏吐槽编剧、把"强行恋爱"演成"强行尴尬/互相嫌弃/笑场翻车"……让"演员造反"本身成为看点。但若某段恰好符合演员的真实关系、没人抗拒，就正常演，别没事找事拆台。`,
         '',
         `请整合成最终演出版，然后严格按下面格式输出（标签外不要写别的）：`,
         `<终本>`,

@@ -413,8 +413,10 @@ const ActorNoteCard: React.FC<{ note: VRActorNote; cast: VRCastAssign[]; charact
                 <span className="ml-auto" style={{ fontSize: 9.5, fontWeight: 800, color: attColor, border: `1px solid ${attColor}`, borderRadius: 999, padding: '1px 8px' }}>{att}</span>
             </div>
             <p style={{ fontSize: 11, color: TH.text, marginTop: 4, lineHeight: 1.45 }}>{note.note}</p>
-            {note.lines && <p style={{ fontSize: 9, color: TH.goldSoft, marginTop: 3 }}>{open ? '▾ 收起 ta 重写的戏份' : '▸ ta 重写了自己的戏份，点开看'}</p>}
+            {note.taboo && <p style={{ fontSize: 9.5, color: TH.crimson, marginTop: 3, lineHeight: 1.45 }}>⛔ 禁忌：{note.taboo}</p>}
+            {(note.lines || note.direction) && <p style={{ fontSize: 9, color: TH.goldSoft, marginTop: 3 }}>{open ? '▾ 收起' : '▸ 点开看 ta 重写的戏份 / 给导演的话'}</p>}
             {open && note.lines && <pre style={{ fontSize: 10.5, color: TH.text, marginTop: 4, padding: 8, background: TH.bg3, borderRadius: 8, borderLeft: `2px solid ${TH.gold}`, lineHeight: 1.5, whiteSpace: 'pre-wrap', fontFamily: SERIF }}>{note.lines}</pre>}
+            {open && note.direction && <p style={{ fontSize: 10, color: TH.goldSoft, marginTop: 4, paddingLeft: 8, borderLeft: `2px solid ${TH.line}`, lineHeight: 1.45 }}>🎬 给导演：{note.direction}</p>}
         </button>
     );
 };
