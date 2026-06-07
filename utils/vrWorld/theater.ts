@@ -63,14 +63,14 @@ const directorPersona = (ch: CharacterProfile): string => [
 const personaBrief = (ch: CharacterProfile): string =>
     [ch.systemPrompt, ch.worldview && `世界观：${ch.worldview}`].filter(Boolean).join('\n').trim() || '（无设定）';
 
-/** 用户给个 brief，让 LLM 代写一出剧本。 */
-export async function generateScript(brief: string, api: TheaterApi): Promise<ParsedScript> {
-    return parseScriptOutput(await chat(api, [{ role: 'user', content: buildLLMScriptTurn(brief) }]));
+/** 用户给个 brief（可带写作风格预设），让 LLM 代写一出剧本。 */
+export async function generateScript(brief: string, api: TheaterApi, presetPrompt?: string): Promise<ParsedScript> {
+    return parseScriptOutput(await chat(api, [{ role: 'user', content: buildLLMScriptTurn(brief, presetPrompt) }]));
 }
 
-/** 按文学风格 + 参考艺术风格润色重写一份剧本正文。 */
-export async function polishScript(body: string, literaryStyle: string, artStyle: string, extra: string, api: TheaterApi): Promise<ParsedScript> {
-    return parseScriptOutput(await chat(api, [{ role: 'user', content: buildPolishTurn(body, literaryStyle, artStyle, extra) }]));
+/** 按写作风格预设 + 额外要求润色重写一份剧本正文。 */
+export async function polishScript(body: string, presetPrompt: string, extra: string, api: TheaterApi): Promise<ParsedScript> {
+    return parseScriptOutput(await chat(api, [{ role: 'user', content: buildPolishTurn(body, presetPrompt, extra) }]));
 }
 
 const castLineOf = (cast: VRCastAssign[]) => cast.map(c => `${c.actorName} 饰 ${c.roleName}`).join('；');

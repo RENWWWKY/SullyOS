@@ -13,7 +13,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOS } from '../../context/OSContext';
 import { X, CaretLeft, CaretRight, Plus, Trash, Sparkle, Play, FilmSlate, UploadSimple, DownloadSimple } from '@phosphor-icons/react';
 import { DB } from '../../utils/db';
-import { SCRIPT_TEMPLATE, PLAY_LITERARY_STYLES, PLAY_ART_STYLES } from '../../utils/vrWorld/constants';
+import { SCRIPT_TEMPLATE } from '../../utils/vrWorld/constants';
+import { WRITING_PRESETS } from '../../utils/vrWorld/presets';
 import { resolveTheaterApi, generateScript, polishScript, collectActorNotes, charActorCount, runDirector, type TheaterCtx } from '../../utils/vrWorld/theater';
 import { rollNpcChibi, randomNpcName } from '../../utils/vrWorld/npcRoll';
 import { getChibi } from '../../utils/vrWorld/chibi';
@@ -578,14 +579,19 @@ const PlaybackView: React.FC<{ play: VRStagedPlay; characters: CharacterProfile[
 };
 
 // ============ 风格 chips（润色 & 代写共用） ============
-const StyleChips: React.FC<{ label: string; options: string[]; value: string; onChange: (v: string) => void }> = ({ label, options, value, onChange }) => (
-    <div style={{ marginBottom: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6, color: TH.text }}>{label}</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {options.map(s => { const on = value === s; return <span key={s} onClick={() => onChange(on ? '' : s)} style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11, cursor: 'pointer', border: `1px solid ${on ? TH.gold : TH.line}`, background: on ? 'rgba(216,178,113,.16)' : TH.bg3, color: on ? TH.gold : TH.sub }}>{s}</span>; })}
+// 写作风格预设选择器（像酒馆预设，选一个就给 LLM 灌一整套写作风格档案）
+const PresetChips: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
+    const sel = WRITING_PRESETS.find(p => p.key === value);
+    return (
+        <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6, color: TH.text }}>写作风格预设 <span style={{ fontSize: 9.5, fontWeight: 400, color: TH.sub }}>选一个，灌一整套腔调/节拍/味道</span></div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {WRITING_PRESETS.map(p => { const on = value === p.key; return <span key={p.key} onClick={() => onChange(on ? '' : p.key)} style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11, cursor: 'pointer', border: `1px solid ${on ? TH.gold : TH.line}`, background: on ? 'rgba(216,178,113,.16)' : TH.bg3, color: on ? TH.gold : TH.sub }}>{p.name}</span>; })}
+            </div>
+            {sel?.blurb && <div style={{ fontSize: 10, color: TH.sub, marginTop: 6, lineHeight: 1.5, fontStyle: 'italic', paddingLeft: 2, borderLeft: `2px solid ${TH.line}` }}> {sel.blurb}</div>}
         </div>
-    </div>
-);
+    );
+};
 
 // ============ 弹窗：我来写 ============
 const WriteScriptModal: React.FC<{ open: boolean; onClose: () => void; onSave: (p: { title: string; logline: string; roles: VRPlayRole[]; body: string }) => void }> = ({ open, onClose, onSave }) => {
@@ -610,21 +616,20 @@ const WriteScriptModal: React.FC<{ open: boolean; onClose: () => void; onSave: (
 
 // ============ 弹窗：LLM 代写（可选风格） ============
 const LLMScriptModal: React.FC<{ open: boolean; onClose: () => void; apiConfig: any; addToast?: (m: string, t?: any) => void; onSaved: () => void }> = ({ open, onClose, apiConfig, addToast, onSaved }) => {
-    const [brief, setBrief] = useState(''); const [lit, setLit] = useState(''); const [art, setArt] = useState(''); const [busy, setBusy] = useState(false);
+    const [brief, setBrief] = useState(''); const [presetKey, setPresetKey] = useState(''); const [busy, setBusy] = useState(false);
     const gen = async () => {
         const api = await resolveTheaterApi(apiConfig);
         if (!api) { addToast?.('没配 API', 'error'); return; }
-        const composed = [lit && `文学风格：${lit}`, art && `参考艺术风格：${art}`, brief.trim()].filter(Boolean).join('；') || '自由发挥，写一出有意思的短剧';
+        const preset = WRITING_PRESETS.find(p => p.key === presetKey)?.prompt;
         setBusy(true);
-        try { const p = await generateScript(composed, api); const s: VRScript = { id: tid('scr'), title: p.title, logline: p.logline, roles: p.roles, body: p.body, authorId: 'llm', authorName: 'LLM 编剧', source: 'llm', createdAt: Date.now() }; await DB.saveVRScript(s); addToast?.(`写好了《${s.title}》`, 'success'); setBrief(''); setLit(''); setArt(''); onSaved(); }
+        try { const p = await generateScript(brief.trim() || '自由发挥，写一出有意思的短剧', api, preset); const s: VRScript = { id: tid('scr'), title: p.title, logline: p.logline, roles: p.roles, body: p.body, authorId: 'llm', authorName: 'LLM 编剧', source: 'llm', createdAt: Date.now() }; await DB.saveVRScript(s); addToast?.(`写好了《${s.title}》`, 'success'); setBrief(''); setPresetKey(''); onSaved(); }
         catch (e: any) { addToast?.('代写失败：' + (e?.message || ''), 'error'); }
         finally { setBusy(false); }
     };
     return (
         <TModal open={open} title="LLM 代写" width={360} onClose={busy ? undefined : onClose} maskClosable={!busy} footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><TButton onClick={onClose} disabled={busy}>取消</TButton><TButton variant="primary" disabled={busy} onClick={gen}>{busy ? '写作中…' : '写'}</TButton></div>}>
             <div style={{ maxHeight: '52vh', overflowY: 'auto' }}>
-                <StyleChips label="文学风格" options={PLAY_LITERARY_STYLES} value={lit} onChange={setLit} />
-                <StyleChips label="参考艺术风格" options={PLAY_ART_STYLES} value={art} onChange={setArt} />
+                <PresetChips value={presetKey} onChange={setPresetKey} />
                 <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6, color: TH.text }}>主题 / 脑洞（可空）</div>
                 <textarea value={brief} onChange={e => setBrief(e.target.value)} rows={3} placeholder="如：两个困在电梯里的陌生人" style={taStyle} />
             </div>
@@ -634,20 +639,20 @@ const LLMScriptModal: React.FC<{ open: boolean; onClose: () => void; apiConfig: 
 
 // ============ 弹窗：润色 ============
 const PolishModal: React.FC<{ open: boolean; onClose: () => void; apiConfig: any; body: string; addToast?: (m: string, t?: any) => void; onPolished: (body: string) => void }> = ({ open, onClose, apiConfig, body, addToast, onPolished }) => {
-    const [lit, setLit] = useState(''); const [art, setArt] = useState(''); const [extra, setExtra] = useState(''); const [busy, setBusy] = useState(false);
+    const [presetKey, setPresetKey] = useState(''); const [extra, setExtra] = useState(''); const [busy, setBusy] = useState(false);
     const run = async () => {
         const api = await resolveTheaterApi(apiConfig);
         if (!api) { addToast?.('没配 API', 'error'); return; }
+        const preset = WRITING_PRESETS.find(p => p.key === presetKey)?.prompt || '';
         setBusy(true);
-        try { const p = await polishScript(body, lit, art, extra, api); onPolished(p.body); }
+        try { const p = await polishScript(body, preset, extra, api); onPolished(p.body); }
         catch (e: any) { addToast?.('润色失败：' + (e?.message || ''), 'error'); }
         finally { setBusy(false); }
     };
     return (
         <TModal open={open} title="润色剧本" width={360} onClose={busy ? undefined : onClose} maskClosable={!busy} footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><TButton onClick={onClose} disabled={busy}>取消</TButton><TButton variant="primary" disabled={busy} onClick={run}>{busy ? '润色中…' : '润色'}</TButton></div>}>
             <div style={{ maxHeight: '52vh', overflowY: 'auto' }}>
-                <StyleChips label="文学风格" options={PLAY_LITERARY_STYLES} value={lit} onChange={setLit} />
-                <StyleChips label="参考艺术风格" options={PLAY_ART_STYLES} value={art} onChange={setArt} />
+                <PresetChips value={presetKey} onChange={setPresetKey} />
                 <TInput value={extra} onChange={e => setExtra(e.target.value)} placeholder="额外要求（可空）" />
             </div>
         </TModal>
