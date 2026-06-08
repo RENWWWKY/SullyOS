@@ -1928,7 +1928,8 @@ const Chat: React.FC = () => {
     // Memoize ChatInputArea callbacks
     const handleSendCallback = useCallback(() => handleSendText(), [char, input, replyTarget]);
     const handleCharSelectCallback = useCallback((id: string) => { setActiveCharacterId(id); setShowPanel('none'); }, []);
-    const acnh = osTheme.skin === 'animalcrossing'; // 动森彩蛋模式
+    // 动森彩蛋模式（受「聊天联动」开关控制：关掉则聊天保持原样式）
+    const acnh = osTheme.skin === 'animalcrossing' && osTheme.acnhChatSync !== false;
     const chatChromeStyle = osTheme.chatChromeStyle || 'soft';
     const chatBackgroundStyle = osTheme.chatBackgroundStyle || 'plain';
     const chatRootClass =

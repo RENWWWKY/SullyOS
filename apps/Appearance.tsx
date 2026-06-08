@@ -870,6 +870,23 @@ const Appearance: React.FC = () => {
                             );
                         })}
                     </div>
+
+                    {/* 动森模式专属：聊天 App 是否联动 */}
+                    {(theme.skin || 'default') === 'animalcrossing' && (
+                        <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3">
+                            <div className="min-w-0">
+                                <div className="text-xs font-bold text-slate-700">聊天界面跟随动森</div>
+                                <div className="text-[10px] text-slate-400 mt-0.5 leading-snug">关掉后，聊天 App 保持原来的样式</div>
+                            </div>
+                            <button
+                                onClick={() => updateTheme({ acnhChatSync: theme.acnhChatSync === false ? true : false })}
+                                className={`relative w-11 h-6 rounded-full shrink-0 transition-colors ${theme.acnhChatSync !== false ? 'bg-primary' : 'bg-slate-300'}`}
+                                aria-label="聊天界面跟随动森"
+                            >
+                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${theme.acnhChatSync !== false ? 'translate-x-5' : ''}`} />
+                            </button>
+                        </div>
+                    )}
                 </section>
 
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
