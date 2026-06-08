@@ -1986,7 +1986,7 @@ const Chat: React.FC = () => {
     // 动森彩蛋：浅奶油米黄中心（上下绿条由 header/输入栏负责），配色参考 Pocket Camp。
     const acnhRootClass = 'flex flex-col h-full overflow-hidden relative font-sans transition-[background-color] duration-500';
     const acnhRootStyle: React.CSSProperties = {
-        backgroundColor: '#F2E9CC',
+        backgroundColor: '#F6F0D8',
         backgroundImage: 'none',
     };
     const finalRootClass = acnh ? acnhRootClass : chatRootClass;
