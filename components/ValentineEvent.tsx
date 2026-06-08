@@ -713,7 +713,7 @@ export const ValentineSession: React.FC<ValentineSessionProps> = ({ charId, onCl
                     <div className="w-8" />
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6">
+                <div className="flex-1 overflow-y-auto p-6" style={{ paddingBottom: 'calc(1.5rem + var(--safe-bottom))' }}>
                     <div className="text-center mb-6">
                         <div className="text-4xl mb-2">💝</div>
                         <h2 className="text-lg font-bold text-slate-700">选择你想听谁说</h2>

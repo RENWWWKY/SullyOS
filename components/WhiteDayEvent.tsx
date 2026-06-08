@@ -1436,7 +1436,7 @@ ${answerSummary}
                     <span className="text-sm font-bold text-amber-800">白色情人节 2026.3.14</span>
                     <div className="w-10" />
                 </div>
-                <div className="flex-1 overflow-y-auto p-6">
+                <div className="flex-1 overflow-y-auto p-6" style={{ paddingBottom: 'calc(1.5rem + var(--safe-bottom))' }}>
                     <p className="text-sm text-amber-600 text-center mb-6">选择一位角色，和 TA 一起 DIY 巧克力</p>
                     <div className="grid grid-cols-3 gap-3">
                         {characters.map(c => (

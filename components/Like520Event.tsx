@@ -155,9 +155,19 @@ export const CreatorIframe: React.FC<CreatorIframeProps> = ({ mode, charName, pr
         const w = iframeRef.current?.contentWindow;
         if (!w) return;
         const p = paramsRef.current;
+        // iframe 内 env(safe-area-inset-bottom) 在 iOS standalone PWA 不可靠（多为 0），
+        // 把外层 JS probe 写到 :root 的 --standalone-safe-area-bottom 透传进去。
+        const rootStyles = typeof window !== 'undefined' ? getComputedStyle(document.documentElement) : null;
+        const safeBottomRaw = rootStyles?.getPropertyValue('--standalone-safe-area-bottom').trim() || '';
+        const safeBottomPx = Number.parseFloat(safeBottomRaw) || 0;
         w.postMessage({
             type: 'like520_init',
-            payload: { ...p, isSully: !!p.isSully, extraItems: extraItemsRef.current },
+            payload: {
+                ...p,
+                isSully: !!p.isSully,
+                extraItems: extraItemsRef.current,
+                safeBottomPx,
+            },
         }, '*');
         initSentRef.current = true;
     };

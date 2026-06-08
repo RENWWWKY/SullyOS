@@ -166,7 +166,7 @@
     border-radius: 28px 28px 0 0;
     border-top: 1px solid rgba(255, 255, 255, 1);
     box-shadow: 0 -8px 24px rgba(199, 97, 130, 0.08);
-    padding: 14px 0 calc(12px + env(safe-area-inset-bottom));
+    padding: 14px 0 calc(12px + var(--like520-safe-bottom, env(safe-area-inset-bottom)));
     max-height: 55vh;
     display: flex; flex-direction: column;
     overscroll-behavior: contain;
@@ -640,6 +640,11 @@ let LIKE520_DRAFT_KEY = ''; // 调用方可传唯一 draftKey 做草稿隔离（
 
 function applyLike520Init(init) {
   if (!init) return;
+  // iframe 内 env(safe-area-inset-bottom) 在 iOS standalone PWA 常返回 0，
+  // 父层把 JS probe 探出的真实值传进来，写到 :root 兜底。
+  if (typeof init.safeBottomPx === 'number' && init.safeBottomPx >= 0) {
+    document.documentElement.style.setProperty('--like520-safe-bottom', init.safeBottomPx + 'px');
+  }
   LIKE520_MODE = init.mode || 'char';
   LIKE520_CHAR_NAME = init.charName || '';
   LIKE520_IS_SULLY = !!init.isSully;
