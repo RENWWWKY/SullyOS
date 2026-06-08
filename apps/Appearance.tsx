@@ -4,6 +4,7 @@ import { useOS, DEFAULT_WALLPAPER } from '../context/OSContext';
 import { OSTheme, DesktopDecoration, AppearancePreset, Toast } from '../types';
 import { INSTALLED_APPS, Icons } from '../constants';
 import { processImage } from '../utils/file';
+import { DB } from '../utils/db';
 import { Sparkle } from '@phosphor-icons/react';
 import { ChatAppearanceEditor as ModularChatAppearanceEditor } from '../components/appearance/ChatAppearanceEditor';
 import { Capacitor } from '@capacitor/core';
@@ -805,12 +806,45 @@ const Appearance: React.FC = () => {
   };
 
   // 切换桌面整机风格：动森模式自动撒叶子贴纸（保留用户已有装饰），切回默认时只清掉 acnh 叶子。
-  const applyDesktopSkin = (skin: { id: string; name: string; config: Partial<OSTheme> }) => {
+  // 壁纸处理：进入动森前备份用户原壁纸（data URI 存 IndexedDB，渐变/URL 存 localStorage），
+  // 切回默认时还原，避免覆盖用户自己设的桌面壁纸。
+  const ACNH_WP_BACKUP_KEY = 'acnh_wallpaper_backup';
+  const applyDesktopSkin = async (skin: { id: string; name: string; config: Partial<OSTheme> }) => {
+      const goingAcnh = skin.id === 'animalcrossing';
+      const currentlyAcnh = (theme.skin || 'default') === 'animalcrossing';
+
+      let wallpaper: string;
+      if (goingAcnh) {
+          wallpaper = ACNH_WALLPAPER;
+          // 仅从「默认 → 动森」时备份一次，避免重复点动森把 AC 壁纸当成用户壁纸备份
+          if (!currentlyAcnh) {
+              const dbWp = await DB.getAsset('wallpaper'); // 用户若用 data URI 壁纸，真值在这
+              const cur = dbWp || theme.wallpaper || '';
+              if (cur && cur.startsWith('data:')) {
+                  await DB.saveAsset('wallpaper_user_backup', cur);
+                  localStorage.setItem(ACNH_WP_BACKUP_KEY, '__asset__');
+              } else {
+                  localStorage.setItem(ACNH_WP_BACKUP_KEY, cur);
+                  await DB.deleteAsset('wallpaper_user_backup');
+              }
+          }
+      } else {
+          // 切回默认：还原备份的用户壁纸
+          const marker = localStorage.getItem(ACNH_WP_BACKUP_KEY);
+          if (marker === '__asset__') {
+              wallpaper = (await DB.getAsset('wallpaper_user_backup')) || DEFAULT_WALLPAPER;
+          } else if (marker !== null) {
+              wallpaper = marker || DEFAULT_WALLPAPER; // 空字符串=用户原本就是默认
+          } else {
+              wallpaper = DEFAULT_WALLPAPER; // 没有备份记录（老用户首次切回）
+          }
+      }
+
       const existing = (theme.desktopDecorations || []).filter(d => !d.id.startsWith(ACNH_LEAF_PREFIX));
-      const desktopDecorations = skin.id === 'animalcrossing'
-          ? [...existing, ...buildAcnhLeaves()]
-          : existing;
-      updateTheme({ ...skin.config, desktopDecorations });
+      const desktopDecorations = goingAcnh ? [...existing, ...buildAcnhLeaves()] : existing;
+      // skin.config 里写死的 wallpaper 不用，改用上面算出的（备份/还原后的）值
+      const { wallpaper: _ignored, ...restConfig } = skin.config;
+      updateTheme({ ...restConfig, wallpaper, desktopDecorations });
       addToast(`已切换到「${skin.name}」`, 'success');
   };
 
