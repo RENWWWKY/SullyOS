@@ -48,8 +48,8 @@ importers:
         specifier: 2.5.0-next.0
         version: 2.5.0-next.0
       '@rei-standard/amsg-instant':
-        specifier: 0.9.0
-        version: 0.9.0
+        specifier: 0.9.1-next.0
+        version: 0.9.1-next.0
       '@rei-standard/amsg-server':
         specifier: 2.5.0
         version: 2.5.0(@neondatabase/serverless@1.1.0)(pg@8.21.0)
@@ -106,8 +106,8 @@ importers:
   worker/instant-push:
     dependencies:
       '@rei-standard/amsg-instant':
-        specifier: 0.9.0
-        version: 0.9.0
+        specifier: 0.9.1-next.0
+        version: 0.9.1-next.0
       '@rei-standard/amsg-shared':
         specifier: 0.2.0
         version: 0.2.0
@@ -855,8 +855,8 @@ packages:
     resolution: {integrity: sha512-J8VExrRoX0fhRZ+jGCmgU/fTUtXrdwunadCMtLqTUEWiQvo1T1FKPnAHAfHsj+p2Oc5A3lUpTgGP0BR7Z45r7g==}
     engines: {node: '>=20'}
 
-  '@rei-standard/amsg-instant@0.9.0':
-    resolution: {integrity: sha512-OTtxaF5Koixmlgvg+nbbtFI0aQvuIPDxltCs8zOEWyngx0axfh/1xrVNWuOV+uWDZ3A7h/BSq/U5fphSRX+ttA==}
+  '@rei-standard/amsg-instant@0.9.1-next.0':
+    resolution: {integrity: sha512-u6MpGMkSR5mbwuA1pEH5WmIY1b2dvqPooWnSdozA9f/HuswiPjLOYUE4ZII8inLJsCJG6zzKjzBO1HqyzEPozg==}
     engines: {node: '>=18'}
 
   '@rei-standard/amsg-server@2.5.0':
@@ -2740,7 +2740,7 @@ snapshots:
     dependencies:
       '@rei-standard/amsg-shared': 0.2.0
 
-  '@rei-standard/amsg-instant@0.9.0':
+  '@rei-standard/amsg-instant@0.9.1-next.0':
     dependencies:
       '@rei-standard/amsg-shared': 0.2.0
 
