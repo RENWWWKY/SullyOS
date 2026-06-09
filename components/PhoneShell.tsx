@@ -21,6 +21,38 @@ const lazyApp = (factory: () => Promise<{ default: React.ComponentType<any> }>):
   return Comp;
 };
 
+// 预热 React.lazy 的「负载」本身：不仅下载模块，还把 lazy 内部状态推进到 resolved，
+// 使首次渲染该 App 时不再 suspend —— 杜绝切换瞬间露出外壳粉紫底色（深色 App 上尤其扎眼）的那一帧闪烁。
+// _payload / _init 为 React.lazy 内部结构（本项目锁定 React 18，形态稳定）；带防御，取不到则退化为仅预热 Vite 模块。
+// 注意：仅解析负载、不挂载组件，因此不会触发各 App 的副作用/数据读取。
+const LAZY_UNINITIALIZED = -1;
+const LAZY_PENDING = 0;
+const LAZY_REJECTED = 2;
+const warmLazy = (Comp: PreloadableLazy): void => {
+  try {
+    const payload: any = (Comp as any)?._payload;
+    const init: any = (Comp as any)?._init;
+    if (!payload || typeof init !== 'function' || payload._status !== LAZY_UNINITIALIZED) {
+      Comp.preload(); // 已在加载/已加载，或拿不到内部结构 → 仅预热 Vite 模块
+      return;
+    }
+    init(payload); // 触发下载 + 解析负载
+    // 关键防护：若空闲预取阶段加载失败，把负载复位为「未初始化」，避免该 App 被永久钉死为错误态；
+    // 真正打开时按 React 正常流程重试（再失败才交给错误边界），与预取前行为一致。
+    const thenable = payload._result;
+    if (payload._status === LAZY_PENDING && thenable && typeof thenable.then === 'function') {
+      thenable.then(undefined, () => {
+        if (payload._status === LAZY_REJECTED) {
+          payload._status = LAZY_UNINITIALIZED;
+          payload._result = Comp.preload; // 还原工厂，供 React 重新调用
+        }
+      });
+    }
+  } catch {
+    try { Comp.preload(); } catch { /* ignore */ }
+  }
+};
+
 const Settings = lazyApp(() => import('../apps/Settings'));
 const Character = lazyApp(() => import('../apps/Character'));
 const Chat = lazyApp(() => import('../apps/Chat'));
@@ -67,6 +99,26 @@ const APP_PRELOAD_ORDER: PreloadableLazy[] = [
   XhsStockApp, XhsFreeRoamApp, BrowserApp, VoiceDesignerApp, ThemeMaker, QQBridge,
   SpecialMomentsApp, CharCreatorDevApp,
 ];
+
+// AppID → 懒加载组件，供「按下即预取」连 React.lazy 负载一起解析（消除切换瞬间露底色的闪烁）。
+// AppID 由下方 import 引入，ES 模块提升后全模块可用。
+const APP_BY_ID: Partial<Record<AppID, PreloadableLazy>> = {
+  [AppID.Settings]: Settings, [AppID.Character]: Character, [AppID.Chat]: Chat,
+  [AppID.GroupChat]: GroupChat, [AppID.ThemeMaker]: ThemeMaker, [AppID.Appearance]: Appearance,
+  [AppID.Gallery]: Gallery, [AppID.Date]: DateApp, [AppID.User]: UserApp,
+  [AppID.Journal]: JournalApp, [AppID.Schedule]: ScheduleApp, [AppID.Room]: RoomApp,
+  [AppID.CheckPhone]: CheckPhone, [AppID.Social]: SocialApp, [AppID.Study]: StudyApp,
+  [AppID.FAQ]: FAQApp, [AppID.Game]: GameApp, [AppID.Worldbook]: WorldbookApp,
+  [AppID.Novel]: NovelApp, [AppID.Bank]: BankApp, [AppID.XhsStock]: XhsStockApp,
+  [AppID.XhsFreeRoam]: XhsFreeRoamApp, [AppID.Browser]: BrowserApp, [AppID.Songwriting]: SongwritingApp,
+  [AppID.Music]: MusicApp, [AppID.Call]: CallApp, [AppID.VoiceDesigner]: VoiceDesignerApp,
+  [AppID.Guidebook]: GuidebookApp, [AppID.LifeSim]: LifeSimApp, [AppID.MemoryPalace]: MemoryPalaceApp,
+  [AppID.Handbook]: HandbookApp, [AppID.QQBridge]: QQBridge, [AppID.HotNews]: HotNewsApp,
+  [AppID.VRWorld]: VRWorldApp, [AppID.CharCreatorDev]: CharCreatorDevApp, [AppID.SpecialMoments]: SpecialMomentsApp,
+};
+// 注入负载预热器：AppIcon 的 pointerdown → preloadApp(id) → 这里 warmLazy，连 React.lazy 负载一起解析。
+setAppPayloadWarmer((id: AppID) => { const c = APP_BY_ID[id]; if (c) warmLazy(c); });
+
 import { Like520Controller, shouldShowLike520Popup } from './Like520Event';
 import { UpdateNotificationController, shouldShowUpdateNotification } from './UpdateNotificationEvent';
 import { WorkerUpdateReminderController, shouldShowWorkerUpdateReminder } from './WorkerUpdateReminderEvent';
@@ -81,6 +133,7 @@ import AppErrorBoundary from './os/AppErrorBoundary';
 import GlobalMiniPlayer from './os/GlobalMiniPlayer';
 import ErrorDialog from './os/ErrorDialog';
 import BootSequence from './os/BootSequence';
+import { setAppPayloadWarmer } from './os/appPreload';
 
 /*
 // Internal Error Boundary Component
@@ -410,11 +463,10 @@ const PhoneShell: React.FC = () => {
       : (cb) => window.setTimeout(cb, 300);
     const step = () => {
       if (cancelled || idx >= APP_PRELOAD_ORDER.length) return;
-      const comp = APP_PRELOAD_ORDER[idx++];
-      Promise.resolve(comp.preload()).catch(() => { /* 预取失败无所谓，真正打开时再正常加载 */ })
-        .finally(() => { if (!cancelled) ric(step); });
+      warmLazy(APP_PRELOAD_ORDER[idx++]); // 下载 chunk + 解析 React.lazy 负载 → 首次打开不再 suspend、无底色闪烁
+      if (!cancelled) ric(step);
     };
-    const startId = window.setTimeout(() => ric(step), 400); // 让首屏交互先稳定一拍
+    const startId = window.setTimeout(() => ric(step), 300); // 让首屏交互先稳定一拍
     return () => { cancelled = true; window.clearTimeout(startId); };
   }, [bootDone, isDataLoaded]);
 
