@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { extractJson, parseCharBeat, parseNpcScene, storyTimeLabel, buildModeRule, buildWorldCharTurn } from './prompts';
-import { applyRelationshipDeltas } from './engine';
+import { applyRelationshipDeltas, collectSeeds, buildSummary } from './engine';
 import { ensureThreads, applyBeatToThreads, applyNpcGroupLines, dmThreadsOf, groupThreadOf, formatThreadForPrompt, dmThreadId, GROUP_THREAD_ID } from './threads';
 import { WorldScheduler } from './scheduler';
 import type { CharacterProfile, WorldProfile } from '../../types';
@@ -73,6 +73,27 @@ describe('parseCharBeat', () => {
         expect(beat.charName).toBe('小满');
     });
 
+    it('解析时间轴/备忘录/冲动/秘密（schema v3）', () => {
+        const raw = JSON.stringify({
+            location: '镇上', narrative: 'x'.repeat(50), mood: '复杂',
+            timeline: [
+                { time: '9:00', place: '画室', event: '画画', shared: true },
+                { time: '11:30', place: '酒吧', event: '偷偷喝了一杯', shared: false },
+                { event: '' }, // 无效条目被过滤
+            ],
+            memo: ['买颜料', '别忘了道歉'],
+            impulse: { text: '想辞职', options: ['辞', '再忍忍'] },
+            secrets: [{ text: '偷偷去了酒吧', hideFrom: ['阿岚', '陌生人'] }],
+        });
+        const beat = parseCharBeat(raw, char, members);
+        expect(beat.timeline).toHaveLength(2);
+        expect(beat.timeline![1].shared).toBe(false);
+        expect(beat.memo).toEqual(['买颜料', '别忘了道歉']);
+        expect(beat.impulse).toEqual({ text: '想辞职', options: ['辞', '再忍忍'] });
+        // hideFrom 只保留真实成员
+        expect(beat.secrets).toEqual([{ text: '偷偷去了酒吧', hideFrom: ['阿岚'] }]);
+    });
+
     it('解析当面对话与群聊发言，过滤非成员的对话对象', () => {
         const raw = JSON.stringify({
             location: '客厅', narrative: 'x', mood: 'y',
@@ -127,35 +148,58 @@ describe('buildModeRule（三档 user 存在感）', () => {
 });
 
 describe('buildWorldCharTurn', () => {
-    it('链式调用：后续角色能看到前面角色的外部摘要（截断，不带内心字段）', () => {
+    it('传递路径：公开行程可见，瞒下的行程/正文/心情不外泄', () => {
         const world = mkWorld();
         const members = [mkChar('a', '小满'), mkChar('b', '阿岚')];
         const turn = buildWorldCharTurn({
             world, char: members[1], members, storyTime: '第1天白天', round: 1,
-            beatsSoFar: [{ charId: 'a', charName: '小满', location: '厨房', narrative: '热汤。'.repeat(100), mood: '松弛' }],
+            beatsSoFar: [{
+                charId: 'a', charName: '小满', location: '镇上', narrative: '她在酒吧后巷哭了一场。', mood: '低落',
+                timeline: [
+                    { time: '9:00', place: '画室', event: '画了一上午', shared: true },
+                    { time: '11:30', place: '酒吧', event: '偷偷去喝了一杯', shared: false },
+                ],
+            }],
             userName: '阿月',
         });
-        expect(turn).toContain('小满 在厨房');
-        expect(turn).toContain('…'); // 200 字截断
-        expect(turn).not.toContain('松弛'); // 心情属于内心状态，不外泄给其他角色
+        // 传递路径：公开行程可见；瞒下的行程、narrative、mood 都不可见
+        expect(turn).toContain('9:00 在画室：画了一上午');
+        expect(turn).not.toContain('酒吧');
+        expect(turn).not.toContain('哭了一场');
+        expect(turn).not.toContain('低落');
     });
 
-    it('同屋角色能看到更完整的行为（同一屋檐下），并完整听到当面对自己说的话', () => {
+    it('当面对话完整传给对话对象，公开动态全员可见', () => {
         const world = mkWorld({ houses: [{ id: 'h1', name: '合租屋', residentIds: ['a', 'b'] }] });
         const members = [mkChar('a', '小满'), mkChar('b', '阿岚')];
-        const narrative = '热汤。'.repeat(100); // 300 字
         const turn = buildWorldCharTurn({
             world, char: members[1], members, storyTime: '第1天白天', round: 1,
             beatsSoFar: [{
-                charId: 'a', charName: '小满', location: '合租屋的厨房', narrative, mood: '松弛',
+                charId: 'a', charName: '小满', location: '合租屋的厨房', narrative: 'x', mood: 'y',
                 dialogues: [{ with: '阿岚', lines: ['汤好了，趁热'] }],
             }],
+            recentPosts: [{ name: '小满', post: '今天的汤格外香' }],
             userName: '',
         });
-        expect(turn).toContain('和你同住');
-        expect(turn).toContain(narrative.slice(0, 400)); // 同屋全文可见（500 字内）
         expect(turn).toContain('当面对你说');
         expect(turn).toContain('「汤好了，趁热」');
+        expect(turn).toContain('小满：今天的汤格外香'); // 社交媒体公开
+    });
+
+    it('伏笔爆发与用户心声注入', () => {
+        const world = mkWorld();
+        const members = [mkChar('a', '小满'), mkChar('b', '阿岚')];
+        const turn = buildWorldCharTurn({
+            world, char: members[1], members, storyTime: '第2天白天', round: 3, beatsSoFar: [],
+            exposures: ['你发现/听说了 小满 一直瞒着的事：偷偷去了酒吧。'],
+            directive: { impulseText: '想辞职去学烘焙', text: '去吧，我支持你' },
+            userName: '阿月',
+        });
+        expect(turn).toContain('绕不开的事');
+        expect(turn).toContain('偷偷去了酒吧');
+        expect(turn).toContain('心里的声音');
+        expect(turn).toContain('去吧，我支持你');
+        expect(turn).toContain('阿月'); // light 模式：联想到 user
     });
 
     it('手机段：先演绎角色刚发的私聊/群聊出现在后演绎角色的上下文里，标【刚刚】', () => {
@@ -257,6 +301,41 @@ describe('applyRelationshipDeltas（有向回填）', () => {
         ], members);
         expect(world.relationships.find(r => r.fromId === 'a' && r.toId === 'b')!.value).toBe(100);
         expect(world.relationships.find(r => r.fromId === 'b' && r.toId === 'a')!.value).toBe(46);
+    });
+});
+
+describe('伏笔与摘要防泄密', () => {
+    it('collectSeeds：显式 secrets + timeline 未声张条目自动补伏笔，不重复', () => {
+        const world = mkWorld();
+        collectSeeds(world, {
+            charId: 'b', charName: '阿岚', location: 'x', narrative: 'y', mood: 'z',
+            timeline: [
+                { time: '9:00', place: '图书馆', event: '看书', shared: true },
+                { time: '22:00', place: '酒吧', event: '偷偷去喝了一杯', shared: false },
+                { time: '23:30', place: '河边', event: '一个人坐了很久', shared: false },
+            ],
+            secrets: [{ text: '偷偷去喝了一杯', hideFrom: ['小满'] }],
+        }, 2, '第1天夜晚');
+        const seeds = world.seeds!;
+        // 显式 secret 1 条 + timeline 自动补 1 条（河边；酒吧已被 secrets 覆盖不重复）
+        expect(seeds).toHaveLength(2);
+        expect(seeds[0]).toMatchObject({ charName: '阿岚', text: '偷偷去喝了一杯', hideFrom: ['小满'], status: 'pending' });
+        expect(seeds[1].text).toContain('河边');
+        expect(seeds[1].hideFrom).toEqual([]);
+    });
+
+    it('buildSummary 只用公开信息：瞒下的事和正文绝不进全员可见的摘要', () => {
+        const summary = buildSummary('第1天夜晚', [{
+            charId: 'b', charName: '阿岚', location: '镇上', narrative: '她在酒吧后巷给前任打了电话。', mood: '崩溃',
+            timeline: [
+                { time: '20:00', place: '餐厅', event: '和同事聚餐', shared: true },
+                { time: '22:00', place: '酒吧', event: '偷偷去喝了一杯', shared: false },
+            ],
+        }], []);
+        expect(summary).toContain('和同事聚餐');
+        expect(summary).not.toContain('酒吧');
+        expect(summary).not.toContain('前任');
+        expect(summary).not.toContain('崩溃');
     });
 });
 

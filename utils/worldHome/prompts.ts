@@ -9,8 +9,36 @@
  *     （buildChatRequestPayload 那条链路不变）。
  */
 
-import type { CharacterProfile, WorldProfile, WorldHouse, WorldCharBeat, WorldHomeMode } from '../../types';
+import type { CharacterProfile, WorldProfile, WorldHouse, WorldCharBeat, WorldHomeMode, WorldNarrativeStyle } from '../../types';
 import { dmThreadsOf, groupThreadOf, formatThreadForPrompt } from './threads';
+
+/** 大段正文的文风预设（世界编辑器里选）。 */
+export const NARRATIVE_STYLES: Record<Exclude<WorldNarrativeStyle, 'custom'>, { name: string; guide: string }> = {
+    warm: {
+        name: '细腻日常',
+        guide: '生活流文笔：气味、光线、触感、食物的温度这类具体细节优先；情绪藏在动作和物件里，不直说；小事中见人。',
+    },
+    inner: {
+        name: '内心独白',
+        guide: '以心理活动为主体：自我对话、犹疑、回忆闪回交织；外部事件只是引子，重点是想法怎么一步步变化；可以用意识流的跳跃。',
+    },
+    drama: {
+        name: '戏剧张力',
+        guide: '强情节：这半天要有一个小冲突或转折（误会、巧合、突发），有悬念有起伏；对白锋利，节奏快，结尾留钩子。',
+    },
+    breezy: {
+        name: '轻快幽默',
+        guide: '口语化、自嘲、吐槽视角；节奏明快，把倒霉事写出喜感；像角色本人在跟好朋友讲段子，但底色仍要真实。',
+    },
+};
+
+export function narrativeStyleGuide(world: WorldProfile): string {
+    if (world.narrativeStyle === 'custom' && world.narrativeStyleCustom?.trim()) {
+        return world.narrativeStyleCustom.trim();
+    }
+    const key = (world.narrativeStyle && world.narrativeStyle !== 'custom' ? world.narrativeStyle : 'warm') as Exclude<WorldNarrativeStyle, 'custom'>;
+    return NARRATIVE_STYLES[key]?.guide || NARRATIVE_STYLES.warm.guide;
+}
 
 /** 剧情时钟 → 时间标签。一轮推进半天：偶数=白天，奇数=夜晚。 */
 export function storyTimeLabel(storyClock: number): string {
@@ -96,11 +124,13 @@ function describeRelationsFor(world: WorldProfile, charId: string, members: Char
 /**
  * 单个角色的演绎回合（user turn）。
  *
- * 信息分层（防上帝视角的同时保住"同一空间的真实感"）：
- *   - 同屋的人这半天的行为：全文可见（你们就在一个屋檐下）
- *   - 非同屋的人：只给位置 + 外在摘要（你能看到/听说的部分）
- *   - 当面对你说的话：完整呈现并要求接住
- *   - 你的手机：私聊线程 + 世界群聊的最近消息（含本轮刚收到的，标【刚刚】）
+ * 传递路径（谁能看到什么——防上帝视角的同时保住真实感）：
+ *   - 社交媒体动态：公开，所有人可见
+ *   - 公开行程（timeline 里 shared=true 的条目）：传给其他角色
+ *   - 瞒下的行程（shared=false / secrets）：谁也看不到 → 进伏笔栏，等用户引爆
+ *   - 当面对话：只有对话对象完整听到
+ *   - 私聊：仅收件人；群聊：全员
+ *   - 大段正文（narrative）：私人视角，只有屏幕外的用户看得到
  */
 export function buildWorldCharTurn(args: {
     world: WorldProfile;
@@ -112,23 +142,35 @@ export function buildWorldCharTurn(args: {
     npcScene?: string;
     npcHooks?: string[];
     beatsSoFar: WorldCharBeat[];
+    /** 公开社交媒体动态（上一轮 + 本轮已演绎角色的 posts） */
+    recentPosts?: { name: string; post: string }[];
+    /** 伏笔爆发注入（engine 按 armed seeds 为该角色生成的现成文案） */
+    exposures?: string[];
+    /** 用户对该角色冲动的决策留言 */
+    directive?: { impulseText: string; text: string };
     userName: string;
 }): string {
-    const { world, char, members, storyTime, round, lastSummary, npcScene, npcHooks, beatsSoFar, userName } = args;
+    const { world, char, members, storyTime, round, lastSummary, npcScene, npcHooks, beatsSoFar, recentPosts, exposures, directive, userName } = args;
     const others = members.filter(m => m.id !== char.id);
     const npcNames = new Map(world.npcs.map(n => [n.id, n.name]));
     const myHouse = houseOf(world, char.id);
 
-    // ── 这半天其他人的动静：同屋全文，非同屋摘要 ──
-    const sameHouse = (otherId: string) => !!myHouse && myHouse.residentIds.includes(otherId);
+    // ── 这半天其他人的动静：位置 + 公开行程（shared=true 的时间轴条目）──
+    // 同住也≠一直在一起：你能掌握的只是 ta 公开的行程和公共空间的照面。
     const observable = beatsSoFar.length > 0
         ? beatsSoFar.map(b => {
-            if (sameHouse(b.charId)) {
-                return `- ${b.charName}（和你同住，你看得见ta这半天的样子）在${b.location}：\n  ${b.narrative.slice(0, 500)}${b.narrative.length > 500 ? '…' : ''}`;
-            }
-            return `- ${b.charName} 在${b.location}：${b.narrative.slice(0, 200)}${b.narrative.length > 200 ? '…' : ''}`;
+            const sharedTl = (b.timeline || []).filter(tl => tl.shared);
+            const tlText = sharedTl.length > 0
+                ? `\n${sharedTl.map(tl => `    ${tl.time} 在${tl.place}：${tl.event}`).join('\n')}`
+                : `（具体行程你不清楚）`;
+            return `- ${b.charName}（主要在${b.location}）${tlText}`;
         }).join('\n')
         : '（这半天你是最先行动的人）';
+
+    // ── 公开社交媒体 ──
+    const postsSection = (recentPosts && recentPosts.length > 0)
+        ? recentPosts.map(p => `- ${p.name}：${p.post}`).join('\n')
+        : '（最近没人发动态）';
 
     // ── 当面对你说的话（需要接住） ──
     const spokenToMe = beatsSoFar.flatMap(b =>
@@ -144,19 +186,30 @@ export function buildWorldCharTurn(args: {
     const dmSection = myDms.length > 0
         ? myDms.map(t => {
             const otherName = t.memberIds.filter(id => id !== char.id).map(id => nameById.get(id)).filter(Boolean).join('、') || '?';
-            return `▸ 与 ${otherName} 的私聊：\n${formatThreadForPrompt(t, char.id, 12, round)}`;
+            return `▸ 与 ${otherName} 的私聊：\n${formatThreadForPrompt(t, char.id, 16, round)}`;
         }).join('\n')
         : '（私聊里还没有消息）';
     const groupSection = group && group.messages.length > 0
-        ? `▸ 群聊「${group.name}」：\n${formatThreadForPrompt(group, char.id, 16, round)}`
+        ? `▸ 群聊「${group.name}」：\n${formatThreadForPrompt(group, char.id, 20, round)}`
         : `▸ 群聊「${group?.name || `${world.name}·大家的群`}」：（还没人说话）`;
+
+    // ── 伏笔爆发 / 用户决策声音 ──
+    const exposureSection = (exposures && exposures.length > 0)
+        ? `\n## ⚡ 这半天绕不开的事（必须在 narrative 里正面处理）\n${exposures.map(e => `- ${e}`).join('\n')}`
+        : '';
+    let directiveSection = '';
+    if (directive) {
+        directiveSection = world.mode === 'light'
+            ? `\n## 心里的声音\n关于「${directive.impulseText}」，你忽然想起 ${userName || '那个最重要的人'}——仿佛能听见 ta 对你说：「${directive.text}」。这句话在你心里有分量，这半天它会影响你的选择。`
+            : `\n## 心里的声音\n关于「${directive.impulseText}」，你内心深处有个声音越来越清晰：「${directive.text}」。这半天它会影响你的选择。`;
+    }
 
     return `【家园 · ${world.name}】剧情时间：${storyTime}
 
 ## 这个世界
 ${world.worldview || '（一个安静的小世界）'}
 
-## 居住安排
+## 居住安排（注意：同住 ≠ 一直在一起。白天/夜晚大家完全可以各在各处忙自己的事）
 ${describeHousing(world, members)}
 你的住处：${myHouse ? `${myHouse.name}${myHouse.residentIds.length > 1 ? `（和 ${myHouse.residentIds.filter(id => id !== char.id).map(id => members.find(m => m.id === id)?.name).filter(Boolean).join('、')} 同住）` : ''}` : '你自己的住处（独居）'}
 
@@ -171,36 +224,48 @@ ${describeRelationsFor(world, char.id, members, npcNames)}
 ${lastSummary || '（这是这个世界的第一个半天，一切刚刚开始）'}
 ${npcScene ? `\n## 这半天镇上的动静（NPC）\n${npcScene}${npcHooks && npcHooks.length > 0 ? `\n可以接住的事件：${npcHooks.join('；')}` : ''}` : ''}
 
+## 社交媒体（公开，大家都刷得到）
+${postsSection}
+
 ## 这半天其他人的动静（你能看到/听说的部分）
 ${observable}
 ${spokenToMe.length > 0 ? `\n## 刚才有人当面对你说话（请在 narrative 里自然接住、给出回应）\n${spokenToMe.join('\n')}` : ''}
+${exposureSection}${directiveSection}
 
 ## 你的手机（标【刚刚】的是这半天刚收到的新消息）
 ${dmSection}
 ${groupSection}
 
 ---
-现在轮到你了。根据你所在的环境自行判定你此刻在哪、在做什么，演绎你这半天（${storyTime}）的生活。一次调用要产出信息量很高的完整生活切片。
+现在轮到你了。一个上午/一个夜晚能发生很多事：自由安排你这半天的行程（完全可以出门、可以和同住的人一整个半天都碰不上面），聚焦在**你自己**正在经历的事情上。
 严格输出一个 JSON 对象（建议用 \`\`\`json 代码块包裹，不要输出 JSON 之外的正文）：
 {
-  "location": "你此刻在哪（自己房间/同居小屋的客厅/镇上的某处…自行判定，要和居住安排与他人动静自洽）",
-  "narrative": "小说式的行为与生活描述，第三人称，300~600字，分2~4个自然段（用\\n\\n分段）。要具体：做了什么、和谁（在场角色按其外在言行互动、NPC 可引用）、环境细节、有温度的小事。",
+  "location": "这半天你主要在哪",
   "mood": "一两个词的此刻心情",
+  "timeline": [
+    { "time": "8:30", "place": "河堤", "event": "晨跑，碰到了遛狗的邻居", "shared": true },
+    { "time": "10:00", "place": "…", "event": "…", "shared": true }
+  ],
+  "narrative": "【大段正文，600~900字，分3~5个自然段（\\n\\n分段）】聚焦这半天里一件有意义的事 + 一次内心动静的拉扯（一个犹豫、一个决定、一次没说出口的话）。文风要求：${narrativeStyleGuide(world)}",
+  "memo": ["你随手记在备忘录里的话（0~3条：待办/碎碎念/不敢说出口的，完全私人）"],
+  "impulse": { "text": "你此刻状态背后的冲动/待决策（想辞职/想告白/想搬走/想加把劲…没有就省略这个字段）", "options": ["选项A", "选项B"] },
+  "secrets": [{ "text": "这半天你瞒着别人的事（对应 timeline 里 shared=false 的条目；没有就空数组）", "hideFrom": ["瞒着谁的名字；空数组=瞒所有人"] }],
   "statusPanel": { "体力": 0到100的数字, "心情值": 0到100的数字, "其他你想记录的状态": "自由发挥（最多再加2项）" },
-  "dialogues": [{ "with": "在场成员的名字", "lines": ["你当面对ta说的话（ta的演绎轮里会完整听到）"] }],
+  "dialogues": [{ "with": "在场成员的名字", "lines": ["你当面对ta说的话（ta会完整听到）"] }],
   "phone": {
-    "posts": ["这半天发的动态（0~2条，没有就给空数组）"],
-    "dms": [{ "to": "同世界某成员的名字", "lines": ["你发给ta的私聊消息（像真的在手机上打字，可以连发几条短的）"] }],
-    "group": ["你发到世界群聊的话（0~3条，群里所有人都看得到）"]
+    "posts": ["发的社交媒体动态（0~2条，公开，所有人可见）"],
+    "dms": [{ "to": "成员名", "lines": ["私聊消息，像真人在手机上打字——可以连发好几条短的、聊得来回多一点"] }],
+    "group": ["发到世界群聊的话（0~4条）"]
   },
-  "relationships": [{ "with": "同世界某成员的名字", "delta": -5到5的整数, "reason": "这半天发生了什么让关系变化" }]
+  "relationships": [{ "with": "成员名", "delta": -5到5的整数, "reason": "为什么" }]
 }
-注意：
-- ${world.mode === 'heavy' ? `这个世界里不存在 ${userName || '用户'}，narrative、phone、所有字段都绝不出现 ta。` : world.mode === 'light' ? `${userName || '用户'} 是你心里最重要的人，但此刻不在场——可以在 narrative 或动态里自然流露惦记。` : `${userName || '用户'} 只是世界里的普通一员，不必特意提及。`}
-- 手机里标【刚刚】的消息是别人新发给你的——像真人一样，该回就回（用 phone.dms 回私聊、phone.group 回群聊），不想回也可以已读不回，但要符合你的性格。
-- dialogues 只对此刻真的在你身边的成员用（同住/同一场所）；隔空说话请用手机。
-- phone.dms 只发给同世界成员；没话想说就给空数组。
-- relationships 只在真的发生了影响关系的事时才给，没有就空数组。`;
+规则：
+- timeline 给 3~6 条，时间要符合${storyTime.includes('夜') ? '傍晚到深夜' : '清晨到午后'}；**shared=false 表示这段你想瞒着**（别人看不到，但可能成为伏笔）。
+- 信息可见性：动态=公开；timeline(shared=true)=别人能知道；私聊=仅对方；群聊=全员；narrative 和 memo=完全私人。瞒事就让对应 timeline 条目 shared=false 并写进 secrets。
+- ${world.mode === 'heavy' ? `这个世界里不存在 ${userName || '用户'}，所有字段都绝不出现 ta。` : world.mode === 'light' ? `${userName || '用户'} 是你心里最重要的人，但此刻不在场——可以在 narrative、memo 或动态里自然流露惦记。` : `${userName || '用户'} 只是世界里的普通一员，不必特意提及。`}
+- 手机里标【刚刚】的消息该回就回（phone.dms / phone.group），已读不回也行，但要符合你的性格；鼓励聊得丰富些。
+- dialogues 只在你的 timeline 和对方真的有共处时才用；不在一起就用手机，或者互相挂念/冷战都行——聚焦你自己。
+- relationships 只在真的发生了影响关系的事时才给。`;
 }
 
 /** NPC 世界引擎回合（一次调用演完所有 NPC；NPC 无记忆，仅靠世界观+上轮梗概）。 */
@@ -264,7 +329,7 @@ const clampNum = (v: any, lo: number, hi: number, fallback: number): number => {
 /** 解析单角色演绎输出 → WorldCharBeat（解析失败时整段原文兜底进 narrative，绝不丢内容）。 */
 export function parseCharBeat(raw: string, char: CharacterProfile, memberNames: string[]): WorldCharBeat {
     const j = extractJson(raw);
-    const fallbackNarrative = (raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/```(?:json)?|```/g, '').trim().slice(0, 800);
+    const fallbackNarrative = (raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/```(?:json)?|```/g, '').trim().slice(0, 1400);
     if (!j || typeof j !== 'object') {
         return { charId: char.id, charName: char.name, location: '住处', narrative: fallbackNarrative || '安静地度过了这半天。', mood: '平静' };
     }
@@ -300,6 +365,33 @@ export function parseCharBeat(raw: string, char: CharacterProfile, memberNames: 
             .map((r: any) => ({ withName: r.with, delta: clampNum(r.delta, -5, 5, 0), reason: r.reason ? String(r.reason).slice(0, 100) : undefined }))
             .slice(0, 5)
         : [];
+    const timeline = Array.isArray(j.timeline)
+        ? j.timeline
+            .filter((tl: any) => tl && typeof tl.event === 'string' && tl.event.trim())
+            .map((tl: any) => ({
+                time: typeof tl.time === 'string' ? tl.time.trim().slice(0, 12) : '',
+                place: typeof tl.place === 'string' ? tl.place.trim().slice(0, 30) : '',
+                event: tl.event.trim().slice(0, 120),
+                shared: tl.shared !== false, // 默认公开，显式 false 才是瞒
+            }))
+            .slice(0, 8)
+        : [];
+    const memo = Array.isArray(j.memo) ? j.memo.map((m: any) => String(m).slice(0, 200)).filter(Boolean).slice(0, 4) : [];
+    const impulse = (j.impulse && typeof j.impulse.text === 'string' && j.impulse.text.trim())
+        ? {
+            text: j.impulse.text.trim().slice(0, 120),
+            options: Array.isArray(j.impulse.options) ? j.impulse.options.map((o: any) => String(o).slice(0, 30)).filter(Boolean).slice(0, 3) : undefined,
+        }
+        : undefined;
+    const secrets = Array.isArray(j.secrets)
+        ? j.secrets
+            .filter((s: any) => s && typeof s.text === 'string' && s.text.trim())
+            .map((s: any) => ({
+                text: s.text.trim().slice(0, 160),
+                hideFrom: Array.isArray(s.hideFrom) ? s.hideFrom.map((n: any) => String(n)).filter((n: string) => nameSet.has(n)) : [],
+            }))
+            .slice(0, 3)
+        : [];
     return {
         charId: char.id,
         charName: char.name,
@@ -307,6 +399,10 @@ export function parseCharBeat(raw: string, char: CharacterProfile, memberNames: 
         narrative: typeof j.narrative === 'string' && j.narrative.trim() ? j.narrative.trim() : (fallbackNarrative || '安静地度过了这半天。'),
         mood: typeof j.mood === 'string' && j.mood.trim() ? j.mood.trim().slice(0, 16) : '平静',
         statusPanel: Object.keys(statusPanel).length > 0 ? statusPanel : undefined,
+        timeline: timeline.length > 0 ? timeline : undefined,
+        memo: memo.length > 0 ? memo : undefined,
+        impulse,
+        secrets: secrets.length > 0 ? secrets : undefined,
         phone: (dms.length > 0 || posts.length > 0 || group.length > 0) ? { posts, dms, group } : undefined,
         dialogues: dialogues.length > 0 ? dialogues : undefined,
         relationshipDeltas: relationshipDeltas.length > 0 ? relationshipDeltas : undefined,

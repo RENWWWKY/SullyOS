@@ -802,6 +802,42 @@ export interface WorldThread {
     messages: WorldChatMessage[];
 }
 
+/** 大段正文的文风。 */
+export type WorldNarrativeStyle = 'warm' | 'inner' | 'drama' | 'breezy' | 'custom';
+
+/**
+ * 伏笔：角色这半天瞒下的事（timeline 里 shared=false 对应的内幕）。
+ * 躺在世界的伏笔栏里，用户可点击"引爆"——下一轮演绎时注入给被瞒者
+ * （你发现了…）与当事人（你瞒的事败露了…），生成冲突。
+ */
+export interface WorldSeed {
+    id: string;
+    charId: string;
+    charName: string;
+    /** 瞒下的事 */
+    text: string;
+    /** 瞒着谁（成员名；空数组 = 瞒着所有人） */
+    hideFrom: string[];
+    round: number;
+    storyTime: string;
+    /** pending=躺着 / armed=用户已点引爆，下一轮爆发 / resolved=已爆发 */
+    status: 'pending' | 'armed' | 'resolved';
+}
+
+/**
+ * 用户对某角色"内心冲动"的决策/留言（想辞职？想告白？）。
+ * 下一轮演绎时以"内心的声音"注入该角色（light 模式下会联想到 user），注入后消费掉。
+ */
+export interface WorldDirective {
+    id: string;
+    charId: string;
+    /** 冲动原文（注入时引用） */
+    impulseText: string;
+    /** 用户的意见 */
+    text: string;
+    createdRound: number;
+}
+
 /** 一个"世界"的完整定义（IndexedDB worlds 表）。 */
 export interface WorldProfile {
     id: string;
@@ -809,6 +845,10 @@ export interface WorldProfile {
     /** 世界观总述（这个世界是什么样的，发生在哪，大家以什么身份生活） */
     worldview: string;
     mode: WorldHomeMode;
+    /** 大段正文的文风（默认 warm 细腻日常） */
+    narrativeStyle?: WorldNarrativeStyle;
+    /** narrativeStyle='custom' 时的自定义文风提示词 */
+    narrativeStyleCustom?: string;
     /** 参与的角色（CharacterProfile.id） */
     memberIds: string[];
     npcs: WorldNPC[];
@@ -816,6 +856,10 @@ export interface WorldProfile {
     relationships: WorldRelationship[];
     /** 世界内消息线程（私聊 + 世界群聊），随演绎累积，每线程截留最近若干条 */
     threads?: WorldThread[];
+    /** 伏笔栏 */
+    seeds?: WorldSeed[];
+    /** 待注入的用户决策（消费后移除） */
+    directives?: WorldDirective[];
     /** 每天离线 tick 的时段（早/午/晚），空数组 = 仅手动观测推进 */
     offlineTickSlots?: ('morning' | 'noon' | 'evening')[];
     /** 剧情时钟：累计推进的半天数（0 = 第1天白天） */
@@ -832,14 +876,25 @@ export interface WorldProfile {
 export interface WorldCharBeat {
     charId: string;
     charName: string;
-    /** 角色根据环境自判定的位置 */
+    /** 角色根据环境自判定的主要位置 */
     location: string;
-    /** 小说式行为描述 */
+    /** 大段正文：聚焦一件有意义的事/一次内心拉扯（按世界设定的文风），私人视角，不外传 */
     narrative: string;
     /** 心情（一两个词） */
     mood: string;
     /** 数值面板（体力/心情值/自定义键） */
     statusPanel?: Record<string, number | string>;
+    /**
+     * 这半天的具体时间轴。shared=false 的条目是角色想瞒着的——
+     * 不会传递给其他角色，并会被提炼进伏笔栏（secrets）。
+     */
+    timeline?: { time: string; place: string; event: string; shared: boolean }[];
+    /** 备忘录（完全私人：只有本人和屏幕外的用户看得到） */
+    memo?: string[];
+    /** 状态背后的冲动/待决策（想辞职/想告白…），用户可以帮忙拿主意 */
+    impulse?: { text: string; options?: string[] };
+    /** 瞒下的事（→ 伏笔栏）。hideFrom 空数组 = 瞒所有人 */
+    secrets?: { text: string; hideFrom?: string[] }[];
     /** 手机内容（dms/group 会立刻落进 world.threads，链内后续角色与下一轮都能收到） */
     phone?: {
         posts?: string[];
@@ -847,7 +902,7 @@ export interface WorldCharBeat {
         /** 发到世界群聊的话 */
         group?: string[];
     };
-    /** 当面对在场成员说的话（不是手机）——对话对象的演绎轮里会完整听到并被要求回应 */
+    /** 共处时当面对在场成员说的话（不是手机）——对话对象的演绎轮里会完整听到并被要求回应 */
     dialogues?: { with: string; lines: string[] }[];
     /** 本轮产出的关系变化（按名字回填到 world.relationships） */
     relationshipDeltas?: { withName: string; delta: number; reason?: string }[];
@@ -884,6 +939,9 @@ export interface WorldCardMeta {
     mood?: string;
     narrative?: string;
     statusPanel?: Record<string, number | string>;
+    timeline?: { time: string; place: string; event: string; shared: boolean }[];
+    memo?: string[];
+    impulse?: { text: string; options?: string[] };
     phonePosts?: string[];
     /** 发到世界群聊的话 */
     phoneGroup?: string[];

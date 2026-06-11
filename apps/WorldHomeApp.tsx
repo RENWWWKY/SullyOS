@@ -18,14 +18,15 @@ import {
     ArrowLeft, Plus, GearSix, Trash, House, UsersThree,
     CaretRight, CaretDown, Sparkle, MapPin, DeviceMobile, X,
     MoonStars, SunHorizon, Heart, ChatCircleDots, Article, WifiHigh, BatteryFull, CellSignalFull,
+    Lightning, NotePencil, PaperPlaneTilt, EyeSlash,
 } from '@phosphor-icons/react';
 import { DB } from '../utils/db';
 import { getChibi } from '../utils/vrWorld/chibi';
 import { WorldScheduler, WorldTickSlot } from '../utils/worldHome/scheduler';
 import { isWorldRunning } from '../utils/worldHome/engine';
-import { storyTimeLabel, houseOf } from '../utils/worldHome/prompts';
+import { storyTimeLabel, houseOf, NARRATIVE_STYLES } from '../utils/worldHome/prompts';
 import { dmThreadsOf, groupThreadOf } from '../utils/worldHome/threads';
-import type { WorldProfile, WorldEpisode, WorldHomeMode, WorldHouse, WorldThread, CharacterProfile, WorldCharBeat } from '../types';
+import type { WorldProfile, WorldEpisode, WorldHomeMode, WorldHouse, WorldThread, WorldNarrativeStyle, CharacterProfile, WorldCharBeat } from '../types';
 
 const genId = (p: string) => `${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -143,10 +144,10 @@ const PhoneModal: React.FC<{
     world: WorldProfile;
     episodes: WorldEpisode[];
     members: CharacterProfile[];
-    initialTab?: 'feed' | 'dm' | 'group';
+    initialTab?: 'feed' | 'dm' | 'group' | 'memo';
     onClose: () => void;
 }> = ({ ownerId, world, episodes, members, initialTab, onClose }) => {
-    const [tab, setTab] = useState<'feed' | 'dm' | 'group'>(initialTab || 'feed');
+    const [tab, setTab] = useState<'feed' | 'dm' | 'group' | 'memo'>(initialTab || 'feed');
     const owner = members.find(m => m.id === ownerId);
     const ownerName = owner?.name || '?';
     const avatar = owner?.avatar;
@@ -162,6 +163,16 @@ const PhoneModal: React.FC<{
         for (const ep of episodes) {
             const b = ep.beats.find(x => x.charId === ownerId);
             for (const p of b?.phone?.posts || []) out.push({ storyTime: ep.storyTime, location: b!.location, post: p, round: ep.round });
+        }
+        return out;
+    }, [episodes, ownerId]);
+
+    // 备忘录：跨轮聚合（私人，只有屏幕外的玩家翻得到）
+    const memos = useMemo(() => {
+        const out: { storyTime: string; text: string }[] = [];
+        for (const ep of episodes) {
+            const b = ep.beats.find(x => x.charId === ownerId);
+            for (const m of b?.memo || []) out.push({ storyTime: ep.storyTime, text: m });
         }
         return out;
     }, [episodes, ownerId]);
@@ -194,11 +205,11 @@ const PhoneModal: React.FC<{
                             <button onClick={onClose} className="ml-auto p-1.5 rounded-full bg-white/10 text-white/70 active:scale-90"><X size={13} weight="bold" /></button>
                         </div>
                         {/* Tab */}
-                        <div className="px-4 flex gap-1.5 shrink-0">
-                            {([['feed', '动态', Article, feed.length], ['dm', '私信', ChatCircleDots, dmCount], ['group', '群聊', UsersThree, group?.messages.length || 0]] as const).map(([id, label, Icon, count]) => (
+                        <div className="px-3 flex gap-1 shrink-0">
+                            {([['feed', '动态', Article, feed.length], ['dm', '私信', ChatCircleDots, dmCount], ['group', '群聊', UsersThree, group?.messages.length || 0], ['memo', '备忘', NotePencil, memos.length]] as const).map(([id, label, Icon, count]) => (
                                 <button key={id} onClick={() => setTab(id)}
-                                    className={`flex-1 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center justify-center gap-1 transition-colors ${tab === id ? 'bg-white text-slate-900' : 'bg-white/10 text-white/60'}`}>
-                                    <Icon size={12} weight="bold" />{label}
+                                    className={`flex-1 py-1.5 rounded-xl text-[10px] font-bold flex items-center justify-center gap-0.5 transition-colors ${tab === id ? 'bg-white text-slate-900' : 'bg-white/10 text-white/60'}`}>
+                                    <Icon size={11} weight="bold" />{label}
                                     <span className={`text-[8px] px-1 rounded-full ${tab === id ? 'bg-slate-900/10' : 'bg-white/10'}`}>{count}</span>
                                 </button>
                             ))}
@@ -262,6 +273,17 @@ const PhoneModal: React.FC<{
                                             <ThreadBubbles thread={group} selfId={ownerId} members={members} npcs={world.npcs} showNames />
                                         </div>
                                     )
+                            )}
+                            {tab === 'memo' && (
+                                memos.length === 0
+                                    ? <div className="text-center text-[11px] text-white/40 pt-16">备忘录是空的</div>
+                                    : memos.map((m, i) => (
+                                        <div key={i} className="rounded-xl bg-amber-50/95 border-l-4 border-amber-300 px-3 py-2 shadow-sm"
+                                            style={{ transform: `rotate(${i % 2 === 0 ? '-0.4' : '0.4'}deg)` }}>
+                                            <div className="text-[8.5px] text-amber-500 font-bold">{m.storyTime}</div>
+                                            <p className="text-[11.5px] leading-[1.55] text-amber-950 mt-0.5 whitespace-pre-wrap">{m.text}</p>
+                                        </div>
+                                    ))
                             )}
                         </div>
                         {/* home indicator */}
@@ -357,6 +379,28 @@ const WorldEditor: React.FC<{
                         <div className={`text-[10.5px] mt-0.5 leading-snug ${w.mode === m ? 'text-white/70' : 'text-stone-500'}`}>{MODE_INFO[m].desc}</div>
                     </button>
                 ))}
+            </div>
+
+            <div className={sectionCls}>
+                <div className={labelCls}>正文文风（每轮大段正文按这个写）</div>
+                <div className="grid grid-cols-2 gap-1.5">
+                    {(Object.keys(NARRATIVE_STYLES) as Exclude<WorldNarrativeStyle, 'custom'>[]).map(s => (
+                        <button key={s} onClick={() => upd({ narrativeStyle: s })}
+                            className={`text-left px-3 py-2 rounded-xl border transition-all ${(w.narrativeStyle || 'warm') === s ? 'bg-stone-900 border-stone-900 text-white shadow-md' : 'bg-white border-stone-200 text-stone-700'}`}>
+                            <div className="text-[12px] font-bold">{NARRATIVE_STYLES[s].name}</div>
+                            <div className={`text-[9.5px] mt-0.5 leading-snug line-clamp-2 ${(w.narrativeStyle || 'warm') === s ? 'text-white/65' : 'text-stone-400'}`}>{NARRATIVE_STYLES[s].guide.slice(0, 40)}…</div>
+                        </button>
+                    ))}
+                </div>
+                <button onClick={() => upd({ narrativeStyle: 'custom' })}
+                    className={`w-full text-left px-3 py-2 rounded-xl border transition-all ${w.narrativeStyle === 'custom' ? 'bg-stone-900 border-stone-900 text-white shadow-md' : 'bg-white border-stone-200 text-stone-700'}`}>
+                    <div className="text-[12px] font-bold">自定义文风</div>
+                </button>
+                {w.narrativeStyle === 'custom' && (
+                    <textarea className={`${inputCls} h-20 resize-none`} value={w.narrativeStyleCustom || ''}
+                        onChange={e => upd({ narrativeStyleCustom: e.target.value })}
+                        placeholder="描述你想要的文风：比如「古早港风言情，对白多，画面感强，带一点宿命感」" />
+                )}
             </div>
 
             <div className={sectionCls}>
@@ -503,6 +547,52 @@ const WorldEditor: React.FC<{
     );
 };
 
+/** 冲动决策卡：user 帮角色拿主意（写进 world.directives，下一轮以"心里的声音"注入）。 */
+const ImpulseCard: React.FC<{
+    impulse: { text: string; options?: string[] };
+    existing?: { text: string };
+    textMain: string;
+    onSend: (text: string) => void;
+}> = ({ impulse, existing, textMain, onSend }) => {
+    const [custom, setCustom] = useState('');
+    return (
+        <div className="mt-2.5 rounded-xl border border-violet-400/40 bg-violet-400/10 p-2.5">
+            <div className="text-[9px] font-black text-violet-500 tracking-wider flex items-center gap-1">
+                <Sparkle size={10} weight="fill" />状态背后 · TA 此刻的冲动
+            </div>
+            <p className={`text-[12px] font-semibold mt-1 ${textMain}`}>{impulse.text}</p>
+            {existing ? (
+                <div className="mt-1.5 text-[10px] text-violet-500 font-bold flex items-center gap-1">
+                    <PaperPlaneTilt size={10} weight="fill" />你的心声已传达：「{existing.text}」——下一轮生效
+                </div>
+            ) : (
+                <>
+                    {impulse.options && impulse.options.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {impulse.options.map((o, i) => (
+                                <button key={i} onClick={() => onSend(o)}
+                                    className="text-[10.5px] font-bold px-2.5 py-1 rounded-full bg-violet-500 text-white active:scale-95 transition-transform">
+                                    {o}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    <div className="mt-1.5 flex gap-1.5">
+                        <input value={custom} onChange={e => setCustom(e.target.value)}
+                            placeholder="或者，悄悄说点别的…"
+                            className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-white/80 border border-violet-300/50 text-[11px] text-stone-800 focus:outline-none" />
+                        <button disabled={!custom.trim()} onClick={() => { onSend(custom.trim()); setCustom(''); }}
+                            className="px-2.5 rounded-lg bg-violet-500 text-white disabled:opacity-40 active:scale-95 transition-transform">
+                            <PaperPlaneTilt size={13} weight="fill" />
+                        </button>
+                    </div>
+                    <div className="text-[8.5px] text-violet-400 mt-1">会化作"心里的声音"在下一轮影响 ta 的选择</div>
+                </>
+            )}
+        </div>
+    );
+};
+
 // ============================================================
 // 大世界视图
 // ============================================================
@@ -572,6 +662,23 @@ const WorldView: React.FC<{
 
     const beatOf = (charId: string): WorldCharBeat | undefined => latest?.beats.find(b => b.charId === charId);
     const nameOf = (id: string) => members.find(m => m.id === id)?.name || world.npcs.find(n => n.id === id)?.name || '?';
+
+    /** 修改世界并刷新（决策/伏笔引爆都走这里）。 */
+    const mutateWorld = async (updates: Partial<WorldProfile>) => {
+        await DB.saveWorld({ ...world, ...updates, updatedAt: Date.now() });
+        onWorldUpdated();
+    };
+
+    const sendDirective = (charId: string, impulseText: string, text: string) => {
+        const d = { id: `wd_${Date.now().toString(36)}`, charId, impulseText, text, createdRound: world.storyClock };
+        void mutateWorld({ directives: [...(world.directives || []), d] });
+        addToast('心声已传达，下一轮生效', 'success');
+    };
+
+    const armSeed = (seedId: string) => {
+        void mutateWorld({ seeds: (world.seeds || []).map(s => s.id === seedId ? { ...s, status: 'armed' as const } : s) });
+        addToast('伏笔已点燃——下一轮观测时爆发', 'success');
+    };
 
     // 主题 token：昼/夜两套
     const t = isNight ? {
@@ -715,6 +822,24 @@ const WorldView: React.FC<{
                                                                 <DeviceMobile size={11} weight="fill" />看手机
                                                             </button>
                                                         </div>
+                                                        {/* 时间轴（shared=false 只有玩家看得到，标"没声张"） */}
+                                                        {b.timeline && b.timeline.length > 0 && (
+                                                            <div className={`mt-2.5 rounded-xl border p-2.5 ${t.chip}`}>
+                                                                <div className="text-[9px] font-black tracking-wider opacity-60 mb-1.5">这半天的时间轴</div>
+                                                                <div className="space-y-1.5">
+                                                                    {b.timeline.map((tl, i) => (
+                                                                        <div key={i} className="flex gap-2 items-baseline">
+                                                                            <span className="text-[9.5px] font-black text-amber-500 w-9 shrink-0 text-right">{tl.time}</span>
+                                                                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 translate-y-[-1px] ${tl.shared ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                                                                            <span className={`text-[11px] leading-snug ${t.textMain} opacity-85`}>
+                                                                                <b>{tl.place}</b> · {tl.event}
+                                                                                {!tl.shared && <span className="ml-1 inline-flex items-center gap-0.5 text-[8.5px] font-black text-rose-400"><EyeSlash size={9} weight="bold" />没声张</span>}
+                                                                            </span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                         <div className="mt-2 space-y-2">
                                                             {b.narrative.split(/\n+/).filter(Boolean).map((para, i) => (
                                                                 <p key={i} className={`text-[12.5px] leading-[1.85] tracking-[0.01em] ${t.textMain} opacity-90`} style={{ textIndent: '2em' }}>{para}</p>
@@ -729,6 +854,26 @@ const WorldView: React.FC<{
                                                                     </div>
                                                                 ))}
                                                             </div>
+                                                        )}
+                                                        {/* 备忘录（私人，仅玩家可见） */}
+                                                        {b.memo && b.memo.length > 0 && (
+                                                            <div className="mt-2.5 flex flex-wrap gap-1.5">
+                                                                {b.memo.map((m, i) => (
+                                                                    <div key={i} className="px-2.5 py-1.5 rounded-lg bg-amber-100 border border-amber-200 text-[10.5px] leading-snug text-amber-900 shadow-sm max-w-full"
+                                                                        style={{ transform: `rotate(${i % 2 === 0 ? '-0.6' : '0.5'}deg)` }}>
+                                                                        <NotePencil size={9} weight="fill" className="inline mr-1 text-amber-500" />{m}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {/* 冲动 / 待决策（user 可帮忙拿主意） */}
+                                                        {b.impulse && (
+                                                            <ImpulseCard
+                                                                impulse={b.impulse}
+                                                                existing={(world.directives || []).find(d => d.charId === b.charId)}
+                                                                textMain={t.textMain}
+                                                                onSend={text => sendDirective(b.charId, b.impulse!.text, text)}
+                                                            />
                                                         )}
                                                         {b.statusPanel && (
                                                             <div className="mt-2.5 grid grid-cols-2 gap-1.5">
@@ -812,6 +957,45 @@ const WorldView: React.FC<{
                                     </div>
                                 ));
                             })()}
+                        </div>
+                    </div>
+                )}
+
+                {/* ── 伏笔栏：角色们瞒下的事（玩家上帝视角），点击引爆生成冲突 ── */}
+                {(world.seeds || []).length > 0 && (
+                    <div className={`rounded-2xl border p-3.5 ${t.panel}`}>
+                        <div className={`text-[10px] font-black tracking-[0.25em] uppercase flex items-center gap-1.5 mb-2.5 ${t.textLabel}`}>
+                            <EyeSlash size={11} weight="fill" />伏笔栏 · 只有你看得到
+                        </div>
+                        <div className="space-y-2">
+                            {(world.seeds || []).filter(s => s.status !== 'resolved').slice().reverse().map(seed => (
+                                <div key={seed.id} className={`rounded-xl border p-2.5 ${seed.status === 'armed' ? 'border-rose-400/60 bg-rose-400/10' : t.panelSolid}`}>
+                                    <div className={`text-[11px] leading-snug ${t.textMain}`}>
+                                        <span className="font-black">{seed.charName}</span>
+                                        <span className={`text-[9px] ml-1.5 ${t.textSub}`}>{seed.storyTime} · 瞒着{seed.hideFrom.length > 0 ? seed.hideFrom.join('、') : '所有人'}</span>
+                                    </div>
+                                    <p className={`text-[11.5px] mt-1 ${t.textMain} opacity-90`}>{seed.text}</p>
+                                    {seed.status === 'pending' ? (
+                                        <button onClick={() => armSeed(seed.id)}
+                                            className="mt-1.5 flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-lg bg-rose-500 text-white active:scale-95 transition-transform">
+                                            <Lightning size={11} weight="fill" />引爆这个伏笔
+                                        </button>
+                                    ) : (
+                                        <div className="mt-1.5 flex items-center gap-2">
+                                            <span className="text-[10px] font-black text-rose-400 flex items-center gap-1"><Lightning size={11} weight="fill" />已点燃 · 下一轮爆发</span>
+                                            <button onClick={observe} disabled={!!progress}
+                                                className="text-[10px] font-black px-2.5 py-1 rounded-lg bg-rose-500 text-white disabled:opacity-40 active:scale-95 transition-transform">
+                                                立即观测
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                            {(world.seeds || []).filter(s => s.status === 'resolved').length > 0 && (
+                                <div className={`text-[9.5px] ${t.textSub}`}>
+                                    已爆发：{(world.seeds || []).filter(s => s.status === 'resolved').slice(-3).map(s => `${s.charName}·${s.text.slice(0, 16)}…`).join(' / ')}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
