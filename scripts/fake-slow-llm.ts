@@ -86,6 +86,34 @@ function completionPayload(content: string) {
   };
 }
 
+/**
+ * 非流式慢响应。不能傻等再一次性返回: Deno Deploy 边缘网关对 ~105s 内
+ * 不出首字节的响应直接回 502 (实测)。JSON 允许任意前导空白 —— 等待期间
+ * 每 5s 滴一个空格保活, 最后吐完整 JSON, res.json() 照常解析。
+ */
+function slowJsonResponse(delayMs: number): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        const startedAt = Date.now();
+        controller.enqueue(encoder.encode(' '));
+        let remaining = delayMs - (Date.now() - startedAt);
+        while (remaining > 0) {
+          await sleep(Math.min(5000, remaining));
+          controller.enqueue(encoder.encode(' '));
+          remaining = delayMs - (Date.now() - startedAt);
+        }
+        controller.enqueue(
+          encoder.encode(JSON.stringify(completionPayload(REPLY_SENTENCES.join('')))),
+        );
+        controller.close();
+      },
+    }),
+    { headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS } },
+  );
+}
+
 /** stream:true 时: 等完 delay 再逐句吐 SSE chunk, 模拟慢首字 + 正常流速。 */
 function streamResponse(delayMs: number): Response {
   const encoder = new TextEncoder();
@@ -102,7 +130,14 @@ function streamResponse(delayMs: number): Response {
   return new Response(
     new ReadableStream({
       async start(controller) {
-        await sleep(delayMs);
+        // 等待期间用 SSE 注释行保活, 防边缘网关掐首字节超时 (同 slowJsonResponse)
+        const startedAt = Date.now();
+        let remaining = delayMs;
+        while (remaining > 0) {
+          controller.enqueue(encoder.encode(': keepalive\n\n'));
+          await sleep(Math.min(5000, remaining));
+          remaining = delayMs - (Date.now() - startedAt);
+        }
         controller.enqueue(encoder.encode(chunk({ role: 'assistant' }, null)));
         for (const sentence of REPLY_SENTENCES) {
           controller.enqueue(encoder.encode(chunk({ content: sentence }, null)));
@@ -144,9 +179,7 @@ Deno.serve(async (request: Request) => {
     }
 
     if (wantsStream) return streamResponse(delayMs);
-
-    await sleep(delayMs);
-    return json(completionPayload(REPLY_SENTENCES.join('')));
+    return slowJsonResponse(delayMs);
   }
 
   return json({ error: { message: `no such route: ${request.method} ${pathname}` } }, 404);
