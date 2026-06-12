@@ -727,9 +727,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const [resource, config] = args;
           
           const urlStr = String(resource);
-          
+          const fetchStartedAt = Date.now();
+
           try {
               const response = await originalFetch(...args);
+              const durationMs = Date.now() - fetchStartedAt;
 
               // 「API 调用记录」统一记录入口：所有 /chat/completions（裸 fetch + safeFetchJson
               // 内部 fetch 都会经过这里）都记一笔。meta 优先取调用方挂在 init 上的 __sullyMeta
@@ -746,10 +748,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       usageClone.text().then((t) => {
                           let parsed: any = undefined;
                           try { parsed = JSON.parse(t); } catch { /* 流式/非 JSON：无 usage，照样记 */ }
-                          recordApiCall({ url: urlStr, body, status, ok, response: parsed, meta });
-                      }).catch(() => recordApiCall({ url: urlStr, body, status, ok, meta }));
+                          recordApiCall({ url: urlStr, body, status, ok, response: parsed, meta, durationMs });
+                      }).catch(() => recordApiCall({ url: urlStr, body, status, ok, meta, durationMs }));
                   } else {
-                      recordApiCall({ url: urlStr, body, status, ok, meta });
+                      recordApiCall({ url: urlStr, body, status, ok, meta, durationMs });
                   }
               }
 
@@ -783,7 +785,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           } catch (err: any) {
               // Network Failure
               if (urlStr.includes('/chat/completions')) {
-                  recordApiCall({ url: urlStr, body: (config as any)?.body, ok: false, meta: (config as any)?.__sullyMeta });
+                  recordApiCall({ url: urlStr, body: (config as any)?.body, ok: false, meta: (config as any)?.__sullyMeta, durationMs: Date.now() - fetchStartedAt });
               }
               setSystemLogs(prev => [{
                   id: `log-${Date.now()}`,
