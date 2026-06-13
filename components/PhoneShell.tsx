@@ -407,11 +407,17 @@ const ImportRecoveryPopup: React.FC<{
 // 不用三点/转圈/进度条，而是开机「世界入场」的微缩版：柔光呼吸 + 柔边光晕扩散 + 上升的微尘
 // + 明亮内核，像「这一小块世界正在凝聚」。透明底，让外壳的虚化壁纸透出来，强化「世界」感。
 // 用内联 @keyframes（CDN 版 Tailwind 不可靠生成自定义动画类）。
-const AppLoadingFallback: React.FC = () => {
+const AppLoadingFallback: React.FC<{ onReturn?: () => void }> = ({ onReturn }) => {
   const [show, setShow] = useState(false);
+  const [stalled, setStalled] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setShow(true), 220);
-    return () => clearTimeout(t);
+    // 卡死逃生口：iOS standalone PWA 从后台恢复 / 弱网时，动态 import 可能既不 resolve 也不 reject，
+    // Suspense 会永远停在这一屏（不报错 → 错误边界不触发 → 不会自动刷新），用户狂点中心光点却毫无反应。
+    // 超过 STALL_MS 仍未加载完 → 把「看着像按钮其实不是」的光点换成真正可点的「刷新/返回」按钮，
+    // 既明确告诉用户该点哪里，又把静默卡死变成一键可恢复。只动占位 UI，不碰 import 逻辑。
+    const stall = setTimeout(() => setStalled(true), 7000);
+    return () => { clearTimeout(t); clearTimeout(stall); };
   }, []);
   // 几颗缓缓上升的微尘（位置/节奏随机，避免机械感）；只动 transform/opacity。
   const motes = useMemo(() => Array.from({ length: 5 }, () => ({
@@ -420,6 +426,35 @@ const AppLoadingFallback: React.FC = () => {
     delay: -Math.random() * 4,
     dur: 3.4 + Math.random() * 2.2,
   })), []);
+  if (stalled) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900/95 text-white p-6 text-center space-y-4" style={{ animation: 'appLoadIn 320ms ease-out both' }}>
+        <style>{`@keyframes appLoadIn{from{opacity:0}to{opacity:1}}`}</style>
+        <h2 className="text-base font-bold">加载有点慢…</h2>
+        <p className="text-xs text-slate-300 max-w-xs leading-relaxed">
+          这个发光的圆点是加载动画，不是按钮——点它不会有反应。常见于刚更新版本或网络瞬断，刷新一次即可恢复。
+        </p>
+        <div className="flex flex-col gap-3 w-full max-w-xs">
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="w-full px-6 py-3 bg-red-600 rounded-full font-bold text-sm shadow-lg active:scale-95 transition-transform"
+          >
+            刷新恢复
+          </button>
+          {onReturn && (
+            <button
+              type="button"
+              onClick={onReturn}
+              className="w-full px-4 py-2 bg-slate-700 rounded-full text-xs font-bold active:scale-95 transition-transform"
+            >
+              返回桌面
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
   if (!show) return null;
   return (
     <div className="w-full h-full flex items-center justify-center bg-transparent" style={{ animation: 'appLoadIn 320ms ease-out both' }}>
@@ -787,7 +822,7 @@ const PhoneShell: React.FC = () => {
           {/* App Container */}
           <div className="flex-1 relative overflow-hidden" style={{ contain: useIOSStandaloneLayout ? undefined : 'layout style paint' }}>
             <AppErrorBoundary onCloseApp={closeApp} resetKey={`${activeApp}:${activeCharacterId || 'none'}`}>
-              <Suspense fallback={<AppLoadingFallback />}>
+              <Suspense fallback={<AppLoadingFallback onReturn={closeApp} />}>
                 {renderApp()}
               </Suspense>
             </AppErrorBoundary>
