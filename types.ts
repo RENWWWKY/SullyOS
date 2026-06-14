@@ -2374,6 +2374,8 @@ export interface FullBackupData {
     worlds?: WorldProfile[];                   // 家园·世界定义
     worldEpisodes?: WorldEpisode[];            // 家园·演绎历史
     vrPostOffice?: Record<string, string>;     // 邮局本机配置：身份 deviceId / 后端地址（存 localStorage）
+    worldHomeLocal?: Record<string, string>;   // 家园本机配置：全局 API + 文风收藏（存 localStorage）
+    luckinLocal?: Record<string, string>;      // 瑞幸：token + 启用状态（存 localStorage）
     songs?: SongSheet[]; // Songwriting app data
     
     // Bank Data

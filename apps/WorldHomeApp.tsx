@@ -28,10 +28,11 @@ import { worldTimeLabel, isNightWorld, houseOf, NARRATIVE_STYLES, buildNpcRollPr
 import { SIM_CHAPTER_DAYS, SIM_CHAPTER_CLOCKS } from '../utils/worldHome/chapters';
 import { dmThreadsOf, groupThreadOf } from '../utils/worldHome/threads';
 import { safeFetchJson } from '../utils/safeApi';
+import { WORLD_API_KEY, WORLD_CUSTOM_STYLE_KEY } from '../utils/worldHome/localBackup';
 import type { WorldProfile, WorldEpisode, WorldHomeMode, WorldTimeMode, WorldHouse, WorldThread, WorldNarrativeStyle, CharacterProfile, WorldCharBeat, APIConfig, ApiPreset } from '../types';
 
-/** 自定义文风的本地收藏（localStorage，跨世界复用）。 */
-const CUSTOM_STYLE_KEY = 'world_custom_styles';
+/** 自定义文风的本地收藏 / 家园全局 API 的 localStorage key —— 与备份工具共用同一组，避免漂移。 */
+const CUSTOM_STYLE_KEY = WORLD_CUSTOM_STYLE_KEY;
 const loadSavedStyles = (): string[] => {
     try { const s = localStorage.getItem(CUSTOM_STYLE_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
 };
@@ -40,7 +41,6 @@ const persistSavedStyles = (list: string[]) => {
 };
 
 /** 家园全局 API（所有世界共用一份；不设=跟随全局聊天默认）。存 localStorage。 */
-const WORLD_API_KEY = 'world_home_api';
 const loadWorldApi = (): { baseUrl: string; apiKey: string; model: string } | null => {
     try { const s = localStorage.getItem(WORLD_API_KEY); const c = s ? JSON.parse(s) : null; return c?.baseUrl ? c : null; } catch { return null; }
 };

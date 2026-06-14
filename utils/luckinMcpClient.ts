@@ -88,6 +88,23 @@ export const isLuckinConfigured = (): boolean => {
     return isLuckinEnabled() && getLuckinToken().length > 0;
 };
 
+// ── 备份用：把瑞幸的 token + 启用状态随「设置 → 导出/导入备份」一起带走（存 localStorage） ──
+export function exportLuckinLocal(): Record<string, string> | undefined {
+    try {
+        const out: Record<string, string> = {};
+        const tk = localStorage.getItem(MCP_TOKEN_KEY); if (tk) out[MCP_TOKEN_KEY] = tk;
+        const en = localStorage.getItem(MCP_ENABLED_KEY); if (en) out[MCP_ENABLED_KEY] = en;
+        return Object.keys(out).length ? out : undefined;
+    } catch { return undefined; }
+}
+export function importLuckinLocal(data: Record<string, string> | null | undefined): void {
+    if (!data || typeof data !== 'object') return;
+    try {
+        if (typeof data[MCP_TOKEN_KEY] === 'string') localStorage.setItem(MCP_TOKEN_KEY, data[MCP_TOKEN_KEY]);
+        if (typeof data[MCP_ENABLED_KEY] === 'string') localStorage.setItem(MCP_ENABLED_KEY, data[MCP_ENABLED_KEY]);
+    } catch { /* ignore */ }
+}
+
 // ========== JSON-RPC 会话状态 (内存, 进程级) ==========
 
 let requestIdCounter = 0;
