@@ -11,6 +11,8 @@ import {
     WorldProfile, WorldEpisode
 } from '../types';
 import { exportPostOfficeLocal, importPostOfficeLocal } from './vrWorld/postOffice';
+import { exportLuckinLocal, importLuckinLocal } from './luckinMcpClient';
+import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 
 const DB_NAME = 'AetherOS_Data';
 const DB_VERSION = 64; // Bumped: v64 ensure worlds / world_episodes stores exist（v63 漏建：已到 v63 的库不会再触发 upgrade，补一版重建）
@@ -2284,6 +2286,8 @@ export const DB = {
           vrPostOffice: exportPostOfficeLocal(), // 邮局本机配置（身份/后端地址，存 localStorage）
           worlds,
           worldEpisodes,
+          worldHomeLocal: exportWorldHomeLocal(), // 家园本机配置：全局 API + 文风收藏（存 localStorage）
+          luckinLocal: exportLuckinLocal(),       // 瑞幸 token + 启用状态（存 localStorage）
       };
   },
 
@@ -2409,6 +2413,8 @@ export const DB = {
           (data as any).vrPostOffice !== undefined,
           data.worlds !== undefined,
           data.worldEpisodes !== undefined,
+          (data as any).worldHomeLocal !== undefined,
+          (data as any).luckinLocal !== undefined,
           data.pixelHomeAssets !== undefined,
           data.pixelHomeLayouts !== undefined,
           data.userProfile !== undefined,
@@ -2692,6 +2698,14 @@ export const DB = {
           await clearAndAdd(STORE_WORLD_EPISODES, data.worldEpisodes, '家园演绎历史', false);
           data.worldEpisodes = undefined as any;
       }, data.worldEpisodes?.length || 0);
+      await runSection('家园本机配置', (data as any).worldHomeLocal !== undefined, async () => {
+          importWorldHomeLocal((data as any).worldHomeLocal); // 全局 API + 文风收藏
+          (data as any).worldHomeLocal = undefined;
+      }, 1);
+      await runSection('瑞幸配置', (data as any).luckinLocal !== undefined, async () => {
+          importLuckinLocal((data as any).luckinLocal); // token + 启用状态
+          (data as any).luckinLocal = undefined;
+      }, 1);
       await runSection('歌曲', data.songs !== undefined, async () => {
           await clearAndAdd(STORE_SONGS, data.songs, '歌曲', false);
           data.songs = undefined as any;
