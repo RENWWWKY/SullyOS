@@ -1103,13 +1103,14 @@ const WorldView: React.FC<{
         void mutateWorld({ seeds: (world.seeds || []).filter(s => s.id !== seedId) });
         addToast('伏笔已删除', 'success');
     };
-    // 长按删除：按住 ~550ms 触发；手指移动超过 10px（在滚动）就取消，避免误删
+    // 长按删除：按住 ~550ms 弹确认框；手指移动超过 10px（在滚动）就取消，避免误删
+    const [pendingSeed, setPendingSeed] = useState<{ id: string; charName: string; text: string } | null>(null);
     const seedPressRef = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
     const cancelSeedPress = () => { if (seedPressRef.current) { clearTimeout(seedPressRef.current.timer); seedPressRef.current = null; } };
-    const startSeedPress = (e: React.PointerEvent, seedId: string) => {
+    const startSeedPress = (e: React.PointerEvent, seed: { id: string; charName: string; text: string }) => {
         cancelSeedPress();
         const x = e.clientX, y = e.clientY;
-        const timer = setTimeout(() => { cancelSeedPress(); deleteSeed(seedId); }, 550);
+        const timer = setTimeout(() => { cancelSeedPress(); setPendingSeed({ id: seed.id, charName: seed.charName, text: seed.text }); }, 550);
         seedPressRef.current = { timer, x, y };
     };
     const moveSeedPress = (e: React.PointerEvent) => {
@@ -1148,6 +1149,24 @@ const WorldView: React.FC<{
 
     return (
         <div className="flex-1 overflow-y-auto no-scrollbar pb-24" style={{ background: t.pageBg }}>
+            {/* 伏笔删除确认（自定义弹窗，非原生） */}
+            {pendingSeed && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 backdrop-blur-sm p-6" onClick={() => setPendingSeed(null)}>
+                    <div className="w-full max-w-[300px] rounded-2xl bg-[#f7f3ea] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="px-4 pt-4 pb-3">
+                            <div className="text-[14px] font-black text-stone-800 flex items-center gap-1.5"><EyeSlash size={15} weight="fill" className="text-rose-400" />删除这个伏笔？</div>
+                            <p className="text-[11.5px] text-stone-500 leading-relaxed mt-2">
+                                <span className="font-bold text-stone-700">{pendingSeed.charName}</span>：{pendingSeed.text.slice(0, 50)}{pendingSeed.text.length > 50 ? '…' : ''}
+                            </p>
+                            <p className="text-[10px] text-stone-400 mt-1.5">删了就不会再爆发了，无法恢复。</p>
+                        </div>
+                        <div className="flex border-t border-stone-200">
+                            <button onClick={() => setPendingSeed(null)} className="flex-1 py-2.5 text-[13px] font-bold text-stone-500 active:bg-black/5">取消</button>
+                            <button onClick={() => { deleteSeed(pendingSeed.id); setPendingSeed(null); }} className="flex-1 py-2.5 text-[13px] font-bold text-rose-500 border-l border-stone-200 active:bg-rose-50">删除</button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {/* ── 天空舞台：剧情时间 + 观测 ── */}
             <div className="relative mx-4 mt-3 rounded-3xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,.18)]" style={{ background: t.skyBg }}>
                 {isNight ? (
@@ -1395,7 +1414,7 @@ const WorldView: React.FC<{
                         <div className="space-y-2">
                             {(world.seeds || []).filter(s => s.status !== 'resolved').slice().reverse().map(seed => (
                                 <div key={seed.id} className={`rounded-xl border p-2.5 select-none ${seed.status === 'armed' ? 'border-rose-400/60 bg-rose-400/10' : t.panelSolid}`}
-                                    onPointerDown={e => startSeedPress(e, seed.id)} onPointerMove={moveSeedPress} onPointerUp={cancelSeedPress} onPointerLeave={cancelSeedPress} onPointerCancel={cancelSeedPress}>
+                                    onPointerDown={e => startSeedPress(e, seed)} onPointerMove={moveSeedPress} onPointerUp={cancelSeedPress} onPointerLeave={cancelSeedPress} onPointerCancel={cancelSeedPress}>
                                     <div className={`text-[11px] leading-snug ${t.textMain}`}>
                                         <span className="font-black">{seed.charName}</span>
                                         <span className={`text-[9px] ml-1.5 ${t.textSub}`}>{seed.storyTime} · 瞒着{seed.hideFrom.length > 0 ? seed.hideFrom.join('、') : '所有人'}</span>
