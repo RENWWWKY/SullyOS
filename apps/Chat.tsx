@@ -10,8 +10,11 @@ import { formatMessageWithTime } from '../utils/messageFormat';
 import { XhsMcpClient, extractNotesFromMcpData, normalizeNote } from '../utils/xhsMcpClient';
 import { isMcdConfigured } from '../utils/mcdMcpClient';
 import { isMcdActivatedInMessages, MCD_ACTIVATE_TRIGGER, MCD_DEACTIVATE_TRIGGER } from '../utils/mcdToolBridge';
+import { isLuckinConfigured } from '../utils/luckinMcpClient';
+import { isLuckinActivatedInMessages, LUCKIN_ACTIVATE_TRIGGER, LUCKIN_DEACTIVATE_TRIGGER } from '../utils/luckinToolBridge';
 import MessageItem from '../components/chat/MessageItem';
 import McdMiniApp from '../components/mcd/McdMiniApp';
+import LuckinMiniApp from '../components/luckin/LuckinMiniApp';
 import { PRESET_THEMES, DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
 import ChatHeader from '../components/chat/ChatHeaderShell';
 import CharacterEntryTransition from '../components/chat/CharacterEntryTransition';
@@ -170,6 +173,9 @@ const Chat: React.FC = () => {
 
     // 小程序快照 ref: MiniApp 状态变化时塞进来, useChatAI 在 build system prompt 时读取并注入
     const mcdMiniAppRef = useRef<import('../utils/mcdToolBridge').McdMiniAppSnapshot | undefined>(undefined);
+    const luckinMiniAppRef = useRef<import('../utils/luckinToolBridge').LuckinMiniAppSnapshot | undefined>(undefined);
+    // 瑞幸聊天点单模式 (点"瑞一杯"激活: 角色直接调真实工具, 注入定位)
+    const luckinChatRef = useRef<import('../utils/luckinToolBridge').LuckinChatState | undefined>(undefined);
 
     // --- Initialize Hook ---
     const { isTyping, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
@@ -188,6 +194,8 @@ const Chat: React.FC = () => {
             : undefined,
         memoryPalaceConfig,
         mcdMiniAppRef,
+        luckinMiniAppRef,
+        luckinChatRef,
         updateCharacter,
     });
 
@@ -830,6 +838,18 @@ const Chat: React.FC = () => {
             return;
         }
 
+        // 用户手打"瑞一杯" → 激活角色瑞幸点单模式 (注入提示词+工具+定位, 角色自己点)
+        if (!customContent && type === 'text' && text === LUCKIN_ACTIVATE_TRIGGER) {
+            setInput(''); localStorage.removeItem(draftKey);
+            activateLuckin();
+            return;
+        }
+        if (!customContent && type === 'text' && text === LUCKIN_DEACTIVATE_TRIGGER) {
+            setInput(''); localStorage.removeItem(draftKey);
+            deactivateLuckin();
+            return;
+        }
+
         if (!customContent) { setInput(''); localStorage.removeItem(draftKey); }
         
         if (type === 'image') {
@@ -978,6 +998,15 @@ const Chat: React.FC = () => {
             case 'mcd-end':
                 handleSendText(MCD_DEACTIVATE_TRIGGER, 'text', { mcdDeactivate: true });
                 break;
+            case 'luckin-not-configured':
+                addToast('请先到设置 → 瑞幸 启用并填入 MCP Token', 'info');
+                break;
+            case 'luckin-request':
+                activateLuckin();
+                break;
+            case 'luckin-end':
+                deactivateLuckin();
+                break;
             case 'html-mode-toggle': {
                 if (!char) break;
                 const next = !((char as any).htmlModeEnabled);
@@ -1008,6 +1037,33 @@ const Chat: React.FC = () => {
     const [mcdAppOpen, setMcdAppOpen] = useState(false);
     // mcdMiniAppRef 声明在文件靠前 (传给 useChatAI), 这里仅占位
     const mcdConfiguredFlag = useMemo(() => isMcdConfigured(), [showPanel, mcdActivated]);
+
+    // 瑞幸聊天点单模式: 激活态用 React state (临时会话态, 不落库)
+    const [luckinMode, setLuckinMode] = useState(false);
+    const luckinActivated = luckinMode;
+    const [luckinAppOpen, setLuckinAppOpen] = useState(false); // 旧小程序壳, 现已不主动开
+    const luckinConfiguredFlag = useMemo(() => isLuckinConfigured(), [showPanel, luckinActivated]);
+
+    const activateLuckin = useCallback(() => {
+        if (!isLuckinConfigured()) { addToast('请先到设置 → 瑞幸 启用并填入 MCP Token', 'info'); return; }
+        luckinChatRef.current = { active: true };
+        setLuckinMode(true);
+        setShowPanel('none');
+        addToast('瑞一杯已开启 ☕ 跟 ta 说想喝什么', 'info');
+        // 抓一次定位, 注入给角色 (queryShopList/createOrder 要经纬度)
+        if (typeof navigator !== 'undefined' && navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => { luckinChatRef.current = { active: true, longitude: pos.coords.longitude, latitude: pos.coords.latitude }; },
+                () => { /* 定位失败: 保持激活, 角色会问你在哪个城市 */ },
+                { enableHighAccuracy: true, timeout: 8000 }
+            );
+        }
+    }, [addToast]);
+
+    const deactivateLuckin = useCallback(() => {
+        luckinChatRef.current = { active: false };
+        setLuckinMode(false);
+    }, []);
 
     // 用户在菜单卡里点"发送给角色"时, 把购物车作为 user 消息插入
     const handleMcdSendCart = useCallback(async (items: import('../components/chat/McdCard').McdCartItem[]) => {
@@ -1100,6 +1156,93 @@ const Chat: React.FC = () => {
                 mcdCardKind: 'cart',
                 mcdCartItems: items,
                 mcdOrderContext: ctx,
+            },
+        } as any);
+        await reloadMessages(visibleCountRef.current);
+    }, [char, reloadMessages]);
+
+    // ─── 瑞幸 handlers (与麦当劳同构) ───
+    const handleLuckinSendCart = useCallback(async (items: import('../components/chat/LuckinCard').LuckinCartItem[]) => {
+        if (!char || !items.length) return;
+        const summary = items.map(i => `${i.name}×${i.qty}`).join('、');
+        const total = items.reduce((s, c) => {
+            const p = typeof c.price === 'string' ? parseFloat(c.price) : (typeof c.price === 'number' ? c.price : 0);
+            return s + (isFinite(p) ? p * c.qty : 0);
+        }, 0);
+        const totalStr = total > 0 ? ` 共¥${total.toFixed(2)}` : '';
+        const content = `想要下单：${summary}${totalStr}`;
+        await DB.saveMessage({
+            charId: char.id,
+            role: 'user',
+            type: 'luckin_card',
+            content,
+            metadata: { luckinCardKind: 'cart', luckinCartItems: items },
+        } as any);
+        await reloadMessages(visibleCountRef.current);
+    }, [char, reloadMessages]);
+
+    const handleLuckinCandidate = useCallback(async (item: import('../components/chat/LuckinCard').LuckinCartItem) => {
+        if (!char || !item) return;
+        const priceStr = (typeof item.price === 'number' || (typeof item.price === 'string' && item.price)) ? ` ¥${item.price}` : '';
+        const content = `「${item.name}」${priceStr}—— 这个怎么样？`;
+        await DB.saveMessage({
+            charId: char.id,
+            role: 'user',
+            type: 'luckin_card',
+            content,
+            metadata: { luckinCardKind: 'candidate', luckinCandidate: item },
+        } as any);
+        await reloadMessages(visibleCountRef.current);
+    }, [char, reloadMessages]);
+
+    const handleLuckinMiniAppSend = useCallback(async (text: string) => {
+        if (!char || !text.trim() || isTyping) return;
+        const trimmed = text.trim();
+        await DB.saveMessage({
+            charId: char.id,
+            role: 'user',
+            type: 'text',
+            content: trimmed,
+            metadata: { fromLuckinMiniApp: true },
+        } as any);
+        const recent = await DB.getRecentMessagesByCharId(char.id, 200);
+        setMessages(recent);
+        triggerAI(recent);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [char, isTyping, triggerAI]);
+
+    const handleLuckinMiniAppStateChange = useCallback((state: import('../utils/luckinToolBridge').LuckinMiniAppSnapshot) => {
+        luckinMiniAppRef.current = state;
+    }, []);
+
+    const handleLuckinAppConfirm = useCallback(async (
+        cart: import('../components/luckin/LuckinMiniApp').CartLine[],
+        ctx: import('../components/luckin/LuckinMiniApp').OrderContext,
+    ) => {
+        if (!char || !cart.length) return;
+        const items: import('../components/chat/LuckinCard').LuckinCartItem[] = cart.map(l => ({
+            code: l.code,
+            name: l.name,
+            price: l.price,
+            qty: l.qty,
+            spec: l.spec,
+        }));
+        const summary = items.map(i => `${i.name}×${i.qty}`).join('、');
+        const total = items.reduce((s, c) => {
+            const p = typeof c.price === 'string' ? parseFloat(c.price) : (typeof c.price === 'number' ? c.price : 0);
+            return s + (isFinite(p) ? p * c.qty : 0);
+        }, 0);
+        const totalStr = total > 0 ? ` 共¥${total.toFixed(2)}` : '';
+        const content = `到店自提 (${ctx.storeName || ctx.deptId}) · ${summary}${totalStr}`;
+        await DB.saveMessage({
+            charId: char.id,
+            role: 'user',
+            type: 'luckin_card',
+            content,
+            metadata: {
+                luckinCardKind: 'cart',
+                luckinCartItems: items,
+                luckinOrderContext: ctx,
             },
         } as any);
         await reloadMessages(visibleCountRef.current);
@@ -2519,6 +2662,8 @@ const Chat: React.FC = () => {
                             pendingIndicator={osTheme.chatPendingIndicator !== false}
                             onMcdSendCart={handleMcdSendCart}
                             onMcdCandidate={handleMcdCandidate}
+                            onLuckinSendCart={handleLuckinSendCart}
+                            onLuckinCandidate={handleLuckinCandidate}
                             thinkingChainOptions={thinkingChainOptions}
                         />
                         </div>
@@ -2610,6 +2755,20 @@ const Chat: React.FC = () => {
                         </button>
                     </div>
                 )}
+                {luckinActivated && (
+                    <div className="flex items-center justify-between px-4 py-1.5 bg-[#0B1F3A]/5 border-b border-[#0B1F3A]/15 text-xs">
+                        <div className="flex items-center gap-1.5 text-[#0B1F3A] font-bold">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#C6A15B] animate-pulse"/>
+                            🦌 瑞一杯进行中
+                        </div>
+                        <button
+                          onClick={deactivateLuckin}
+                          className="px-2.5 py-0.5 bg-[#0B1F3A]/10 text-[#0B1F3A] rounded-full text-[11px] font-bold active:scale-95"
+                        >
+                          结束
+                        </button>
+                    </div>
+                )}
                 {replyTarget && (
                     <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
                         <div className="flex items-center gap-2 truncate"><span className="font-bold text-slate-700">正在回复:</span><span className="truncate max-w-[200px]">{replyTarget.content.length > 10 ? replyTarget.content.slice(0, 10) + '...' : replyTarget.content}</span></div>
@@ -2640,6 +2799,8 @@ const Chat: React.FC = () => {
                     isProactiveActive={isProactiveActive}
                     mcdConfigured={mcdConfiguredFlag}
                     mcdActivated={mcdActivated}
+                    luckinConfigured={luckinConfiguredFlag}
+                    luckinActivated={luckinActivated}
                     htmlModeEnabled={!!(char as any).htmlModeEnabled}
                     showThinkingChain={!!(char as any).showThinkingChain}
                     inputStyle={osTheme.chatInputStyle}
@@ -2754,6 +2915,19 @@ const Chat: React.FC = () => {
                 onSendMessage={handleMcdMiniAppSend}
                 onStateChange={handleMcdMiniAppStateChange}
                 onConfirmOrder={handleMcdAppConfirm}
+            />
+
+            {/* 🦌 瑞幸小程序 - 与麦当劳同构 */}
+            <LuckinMiniApp
+                open={luckinAppOpen}
+                onClose={() => setLuckinAppOpen(false)}
+                char={char}
+                userProfile={userProfile}
+                messages={messages}
+                isTyping={isTyping}
+                onSendMessage={handleLuckinMiniAppSend}
+                onStateChange={handleLuckinMiniAppStateChange}
+                onConfirmOrder={handleLuckinAppConfirm}
             />
 
 
