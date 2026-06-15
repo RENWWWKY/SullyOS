@@ -810,10 +810,11 @@ const InAppChat: React.FC<{
     const charName = char?.name || 'TA';
 
     return (
-        <div className="border-t-2 border-[#E0D8C4]/70 bg-gradient-to-b from-[#EFE9DC]/70 to-[#F2EEE3] shrink-0 flex flex-col" style={{ maxHeight: expanded ? '50%' : '52px' }}>
+        <div className="border-t-2 border-[#E0D8C4]/70 bg-gradient-to-b from-[#EFE9DC]/70 to-[#F2EEE3] shrink-0 flex flex-col" style={{ maxHeight: expanded ? '50%' : 'calc(52px + var(--safe-bottom, 0px))' }}>
             <button
                 onClick={() => setExpanded((v: boolean) => !v)}
                 className="flex items-center gap-2 px-3 py-2 bg-[#F2ECDD]/90 active:bg-[#EFE9DC] transition border-b border-[#ECE6D8]/70"
+                style={!expanded ? { paddingBottom: 'calc(0.5rem + var(--safe-bottom, 0px))' } : undefined}
             >
                 <div className="w-7 h-7 rounded-full bg-[#16386F] overflow-hidden shrink-0 flex items-center justify-center text-sm">
                     {charAvatar ? <img src={charAvatar} alt="" className="w-full h-full object-cover" /> : '🐾'}
@@ -887,7 +888,7 @@ const InAppChat: React.FC<{
                             </div>
                         )}
                     </div>
-                    <div className="border-t border-[#ECE6D8]/70 p-2 flex items-end gap-2 bg-white">
+                    <div className="border-t border-[#ECE6D8]/70 p-2 flex items-end gap-2 bg-white" style={{ paddingBottom: 'calc(0.5rem + var(--safe-bottom, 0px))' }}>
                         <textarea
                             value={input}
                             onChange={(e: any) => setInput(e.target.value)}

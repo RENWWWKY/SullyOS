@@ -982,11 +982,12 @@ const InAppChat: React.FC<{
     const charName = char?.name || 'TA';
 
     return (
-        <div className="border-t-2 border-yellow-300/60 bg-gradient-to-b from-yellow-100/60 to-amber-50 shrink-0 flex flex-col" style={{ maxHeight: expanded ? '50%' : '52px' }}>
+        <div className="border-t-2 border-yellow-300/60 bg-gradient-to-b from-yellow-100/60 to-amber-50 shrink-0 flex flex-col" style={{ maxHeight: expanded ? '50%' : 'calc(52px + var(--safe-bottom, 0px))' }}>
             {/* 折叠条 / 展开切换 */}
             <button
                 onClick={() => setExpanded((v: boolean) => !v)}
                 className="flex items-center gap-2 px-3 py-2 bg-yellow-100/80 active:bg-yellow-200/60 transition border-b border-yellow-200/60"
+                style={!expanded ? { paddingBottom: 'calc(0.5rem + var(--safe-bottom, 0px))' } : undefined}
             >
                 <div className="w-7 h-7 rounded-full bg-yellow-300 overflow-hidden shrink-0 flex items-center justify-center text-sm">
                     {charAvatar ? <img src={charAvatar} alt="" className="w-full h-full object-cover" /> : '🐾'}
@@ -1060,7 +1061,7 @@ const InAppChat: React.FC<{
                             </div>
                         )}
                     </div>
-                    <div className="border-t border-yellow-200/60 p-2 flex items-end gap-2 bg-white">
+                    <div className="border-t border-yellow-200/60 p-2 flex items-end gap-2 bg-white" style={{ paddingBottom: 'calc(0.5rem + var(--safe-bottom, 0px))' }}>
                         <textarea
                             value={input}
                             onChange={(e: any) => setInput(e.target.value)}

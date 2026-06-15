@@ -1251,7 +1251,7 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                 {games.length > LOBBY_PAGE_SIZE && (() => {
                     const totalPages = Math.ceil(games.length / LOBBY_PAGE_SIZE);
                     return (
-                        <div className="flex items-center justify-center gap-4 px-6 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 shrink-0 z-10">
+                        <div className="flex items-center justify-center gap-4 px-6 pb-[calc(1rem+var(--safe-bottom))] pt-2 shrink-0 z-10">
                             <button
                                 onClick={() => setLobbyPage(p => Math.max(0, p - 1))}
                                 disabled={lobbyPage === 0}
@@ -1460,7 +1460,7 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                 </div>
 
                 {/* 底部开始按钮 */}
-                <div className="p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] border-t border-white/5 bg-black/40 backdrop-blur-md z-10">
+                <div className="p-4 pb-[calc(1rem+var(--safe-bottom))] border-t border-white/5 bg-black/40 backdrop-blur-md z-10">
                     <button
                         onClick={handleCreateGame}
                         disabled={isCreating || !canStart}
@@ -1726,7 +1726,7 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
 
             {/* 多选转发操作栏 */}
             {selectMode && (
-                <div className={`p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] border-t ${theme.border} bg-black/50 backdrop-blur shrink-0 z-20 flex items-center gap-3 animate-slide-down`}>
+                <div className={`p-4 pb-[calc(1rem+var(--safe-bottom))] border-t ${theme.border} bg-black/50 backdrop-blur shrink-0 z-20 flex items-center gap-3 animate-slide-down`}>
                     <button onClick={exitSelectMode} className="px-4 h-11 rounded-xl border border-white/15 text-sm font-bold text-white/70 active:scale-95 transition-transform">取消</button>
                     <span className="text-xs text-white/50 flex-1 text-center">已选 {selectedLogIds.size} 条 · 长按可多选剧情</span>
                     <button
@@ -1740,8 +1740,8 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
             )}
 
             {/* Controls */}
-            {/* Added pb-[env(safe-area-inset-bottom)] to ensure content clears home bar on full screen devices */}
-            <div className={`p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] border-t ${theme.border} bg-opacity-90 backdrop-blur shrink-0 z-20 transition-colors duration-500 ${selectMode ? 'hidden' : ''}`}>
+            {/* 底部 pb-[calc(1rem+var(--safe-bottom))] 让内容避开 home 条（--safe-bottom 见 index.html，iOS PWA 下有 JS probe 兜底）*/}
+            <div className={`p-4 pb-[calc(1rem+var(--safe-bottom))] border-t ${theme.border} bg-opacity-90 backdrop-blur shrink-0 z-20 transition-colors duration-500 ${selectMode ? 'hidden' : ''}`}>
                 
                 {/* AI Suggested Options Area */}
                 {activeGame.suggestedActions && activeGame.suggestedActions.length > 0 && !isTyping && (

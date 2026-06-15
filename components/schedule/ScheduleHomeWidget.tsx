@@ -512,7 +512,7 @@ export const ScheduleFullscreenViewer: React.FC<ScheduleFullscreenViewerProps> =
 
             {/* Schedule card */}
             <div
-                className="flex-1 min-h-0 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] no-scrollbar"
+                className="flex-1 min-h-0 overflow-y-auto px-5 pb-[calc(var(--safe-bottom)+1.5rem)] no-scrollbar"
                 onClick={(e) => e.stopPropagation()}
             >
                 <ScheduleCard
