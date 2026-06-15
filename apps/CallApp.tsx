@@ -143,11 +143,11 @@ const SOUND_TAG_META: Record<string, string> = {
 };
 const SOUND_TAG_NAMES = Object.keys(SOUND_TAG_META).join('|');
 const SOUND_TAG_SPLIT_RE = new RegExp(`(（[^（）\\n]{1,48}）|\\((?:${SOUND_TAG_NAMES})\\)|\\n)`, 'gi');
-// 迷你声波条——呼应通话界面的波形主题，纯矢量
-const SoundWaveGlyph = ({ accent }: { accent: string }) => (
+// 迷你声波条——呼应通话界面的波形主题，纯矢量（恒为浅色，避免深色主题下看不见）
+const SoundWaveGlyph = () => (
   <span className="inline-flex items-center gap-[1.5px] align-middle" style={{ height: '0.7em' }} aria-hidden>
     {[0.4, 0.85, 0.6, 1, 0.5].map((h, i) => (
-      <span key={i} className="w-[1.5px] rounded-full" style={{ height: `${h * 100}%`, background: accent, opacity: 0.85 }} />
+      <span key={i} className="w-[1.5px] rounded-full" style={{ height: `${h * 100}%`, background: 'rgba(255,255,255,0.85)' }} />
     ))}
   </span>
 );
@@ -161,11 +161,12 @@ const renderAssistantLine = (text: string, accent = '#8b5cf6') => {
     const soundMatch = part.match(new RegExp(`^\\((${SOUND_TAG_NAMES})\\)$`, 'i'));
     if (soundMatch) {
       const zh = SOUND_TAG_META[soundMatch[1].toLowerCase()];
+      // 文字恒为白色，accent 只用于淡底+描边，深色主题下也清晰可读
       return (
-        <span key={`snd-${idx}`} className="inline-flex items-center gap-1 align-middle mx-0.5 px-1.5 py-[1px] rounded-full text-[0.7em] font-medium tracking-wide"
-          style={{ background: `${accent}1f`, color: accent, border: `1px solid ${accent}33` }}>
-          <SoundWaveGlyph accent={accent} />
-          <span className="opacity-95">{zh}</span>
+        <span key={`snd-${idx}`} className="inline-flex items-center gap-1 align-middle mx-0.5 px-1.5 py-[1px] rounded-full text-[0.7em] font-medium tracking-wide text-white/90"
+          style={{ background: `${accent}33`, border: '1px solid rgba(255,255,255,0.22)' }}>
+          <SoundWaveGlyph />
+          <span>{zh}</span>
         </span>
       );
     }
@@ -407,6 +408,28 @@ const CallApp: React.FC = () => {
       setIsListening(false);
       sttSessionRef.current = null;
       addToast(e?.message || '无法启动语音输入', 'error');
+    }
+  };
+  // 下载某条通话语音（优先把 blob/远端拉成文件下载，CORS 拉不到就开链接让用户自己存）
+  const handleDownloadCallAudio = async (url?: string, ts?: number) => {
+    if (!url) { addToast('这条还没有语音', 'error'); return; }
+    try {
+      const fname = `${(selectedChar?.name || '通话').replace(/[\\/:*?"<>|]/g, '_')}_语音_${ts || Date.now()}.mp3`;
+      let blob: Blob | null = null;
+      try { const r = await fetch(url); if (r.ok) blob = await r.blob(); } catch { /* CORS：走兜底 */ }
+      const a = document.createElement('a');
+      a.download = fname;
+      if (blob) {
+        const u = URL.createObjectURL(blob);
+        a.href = u; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(u), 1000);
+      } else {
+        a.href = url; a.target = '_blank'; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+      addToast('语音已开始下载', 'success');
+    } catch {
+      addToast('语音下载失败', 'error');
     }
   };
   useEffect(() => {
@@ -1247,10 +1270,11 @@ const CallApp: React.FC = () => {
                 </>;
               })() : (line || bubble.text)}
             </div>
-            {isLatest && bubble.role === 'assistant' && (
-              <div className="mt-2 flex gap-2">
+            {bubble.role === 'assistant' && (bubble.audioUrl || isLatest) && (
+              <div className="mt-2 flex gap-2 flex-wrap">
                 {bubble.audioUrl && <button onClick={() => playAudio(bubble.audioUrl)} className="text-xs px-2.5 py-1 rounded-full bg-white/8 border border-white/15 text-white/70 transition hover:bg-white/15">重播语音</button>}
-                <button onClick={() => handleRerollAssistant(bubble)} disabled={!!rerollingBubbleId} className="text-xs px-2.5 py-1 rounded-full bg-white/8 border border-white/15 text-white/70 transition hover:bg-white/15 disabled:opacity-40">{rerollingBubbleId === bubble.id ? '换一种说法…' : '换个说法'}</button>
+                {bubble.audioUrl && <button onClick={() => handleDownloadCallAudio(bubble.audioUrl, bubble.timestamp)} className="text-xs px-2.5 py-1 rounded-full bg-white/8 border border-white/15 text-white/70 transition hover:bg-white/15">下载</button>}
+                {isLatest && <button onClick={() => handleRerollAssistant(bubble)} disabled={!!rerollingBubbleId} className="text-xs px-2.5 py-1 rounded-full bg-white/8 border border-white/15 text-white/70 transition hover:bg-white/15 disabled:opacity-40">{rerollingBubbleId === bubble.id ? '换一种说法…' : '换个说法'}</button>}
               </div>
             )}
           </div>
