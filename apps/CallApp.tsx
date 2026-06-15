@@ -5,7 +5,7 @@ import { safeFetchJson } from '../utils/safeApi';
 import { minimaxFetch } from '../utils/minimaxEndpoint';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
 import { hashTtsParams, getCachedTts, saveCachedTts } from '../utils/ttsCache';
-import { cleanTextForTts, insertSpeechBreaks, convertHexAudioToBlob, fetchRemoteAudioBlob, VALID_EMOTIONS } from '../utils/minimaxTts';
+import { cleanTextForTts, insertSpeechBreaks, convertHexAudioToBlob, fetchRemoteAudioBlob, VALID_EMOTIONS, stripEmotionTags } from '../utils/minimaxTts';
 import { startStt, isSttSupported, type SttSession } from '../utils/speechToText';
 import { ContextBuilder } from '../utils/context';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
@@ -44,8 +44,9 @@ const summarizeKeepsakeLine = (transcript: CallBubble[], charName: string) => {
   const polished = sentence.length > 48 ? `${sentence.slice(0, 48)}…` : sentence;
   return `“${polished}” —— ${charName}`;
 };
-// Emotion the AI may declare at the very start of a call reply, e.g. "[happy] 喂？".
-// Parsed BEFORE sanitize (which strips the token), then fed to MiniMax voice_setting.emotion.
+// Emotion the AI may declare at the very START of a call reply, e.g. "[happy] 喂？".
+// Only a leading tag is APPLIED (conservative — avoids surprise mid-utterance tone
+// swings); any other [emotion] tags are stripped without effect by stripEmotionTags.
 const LEADING_EMOTION_RE = /^\s*[\[【]\s*(happy|sad|angry|fearful|disgusted|surprised|calm|fluent)\s*[\]】]\s*/i;
 const extractLeadingEmotion = (raw: string): string | undefined => {
   const m = (raw || '').match(LEADING_EMOTION_RE);
@@ -53,8 +54,8 @@ const extractLeadingEmotion = (raw: string): string | undefined => {
 };
 const sanitizeAssistantOutput = (raw: string) => {
   if (!raw) return '';
-  return raw
-    .replace(LEADING_EMOTION_RE, '')
+  // Strip ALL [emotion]/【emotion】 tags (any position) so they're never shown or read.
+  return stripEmotionTags(raw)
     .replace(/^\s*(?:\[\s*通话\s*\]\s*)+/gim, '')
     .replace(/^\s*(?:\[\s*(?:聊天|约会)\s*\]\s*)+/gim, '')
     .replace(/^\s*\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s*/gm, '')
@@ -204,18 +205,17 @@ const buildCallPrompt = (userName: string, charName?: string, coreContext?: stri
 
 你的话会被转成真实语音，所以**情绪和语气要由你自己标出来**，不要写中文舞台指示（系统不会朗读它们，只会被删掉）。两种工具：
 
-1) **行首情绪**（可选）：如果这句话有明显情绪，在最开头加一个标签设定整句的语气，只能从这些里选一个：
+1) **整段情绪**（可选，最多一个）：如果这通回复整体有明显情绪，**只在整段回复的最最开头**放一个标签，从这些里选一个：
 \`[happy] [sad] [angry] [fearful] [disgusted] [surprised] [calm] [fluent]\`
-   例：\`[happy] 诶你终于打来啦！\`  /  \`[sad] ……我今天其实挺不好受的。\`
-   情绪不强烈就别加，平淡的话不用标。
+   例：\`[angry] 你昨晚十二点半还喝咖啡？不要命了是吧。\`
+   **铁律**：整段回复最多一个，且必须在最开头。**绝对不要每段都标、不要标在句子中间、不要标在第二段以后**——放错位置只会被删掉、还会让声音忽高忽低。情绪不强就别标。
 
-2) **句中语气声**：想要笑声、叹气、喘息这种真实的口头反应时，直接写官方英文标签（会被真实演绎出来），**别写中文的（轻笑）（叹气）**：
-\`(chuckle) (laughs) (sighs) (coughs) (clear-throat) (groans) (breath) (pant) (inhale) (exhale) (gasps) (sniffs) (snorts) (lip-smacking) (humming) (hissing) (emm)\`
-   例：\`(chuckle) 你别逗我了……(sighs) 算了，听你的。\`
+2) **句中语气声**（要克制）：偶尔想要笑、叹气这种真实反应，直接写官方英文标签（**别写中文的（轻笑）（叹气）**）：
+\`(chuckle) (laughs) (sighs) (coughs) (groans) (breath) (pant) (gasps) (sniffs) (snorts) (hissing) (emm)\`
+   例：\`(sighs) 算了，听你的。\`
+   **整段回复里这种标签最多一两个**，多了声音会飘、很假。
 
-注意：
-- 语气标签要克制，一两句话最多一个，太多会很假很吵。
-- 不要写小说式中文旁白，如”（我靠在椅背上，目光看向远方）”——这种会被直接删掉，等于白写。
+注意：不要写小说式中文旁白，如”（我靠在椅背上，目光看向远方）”——会被直接删掉，等于白写。
 
 ### 底线
 
@@ -415,7 +415,7 @@ const CallApp: React.FC = () => {
               model, text: speechText, stream: false, output_format: 'url',
               voice_setting: { voice_id: voiceId, ...resolveVoiceSettingFields(greetingEmotion) },
               audio_setting: { format: 'mp3', sample_rate: 32000, bitrate: 128000, channel: 1 },
-              language_boost: voiceLang || 'auto',
+              ...(voiceLang ? { language_boost: voiceLang } : {}),
               ...buildTtsExtras(),
             };
             if (groupId) ttsPayload.group_id = groupId;
@@ -688,7 +688,7 @@ const CallApp: React.FC = () => {
           output_format: 'url',
           voice_setting: { voice_id: voiceId, ...resolveVoiceSettingFields(turnEmotion) },
           audio_setting: { format: 'mp3', sample_rate: 32000, bitrate: 128000, channel: 1 },
-          language_boost: voiceLang || 'auto',
+          ...(voiceLang ? { language_boost: voiceLang } : {}),
           ...buildTtsExtras(),
         };
         if (groupId) ttsPayload.group_id = groupId;
@@ -892,7 +892,7 @@ const CallApp: React.FC = () => {
               model, text: speechText, stream: false, output_format: 'url',
               voice_setting: { voice_id: voiceId, ...resolveVoiceSettingFields(rerollEmotion) },
               audio_setting: { format: 'mp3', sample_rate: 32000, bitrate: 128000, channel: 1 },
-              language_boost: voiceLang || 'auto',
+              ...(voiceLang ? { language_boost: voiceLang } : {}),
               ...buildTtsExtras(),
             };
             if (groupId) ttsPayload.group_id = groupId;

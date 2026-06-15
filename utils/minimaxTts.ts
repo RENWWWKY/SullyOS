@@ -20,6 +20,11 @@ export const VALID_EMOTIONS = new Set([
   'happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm', 'fluent',
 ]);
 
+// [happy]/【angry】… 这类情绪标签是给系统读取/设定 emotion 用的，绝不能被朗读或显示出来。
+const EMOTION_TAG_RE = /[\[【]\s*(?:happy|sad|angry|fearful|disgusted|surprised|calm|fluent)\s*[\]】]/gi;
+/** 移除文本里所有 [emotion] / 【emotion】 标记（任意位置），避免被朗读或显示。 */
+export const stripEmotionTags = (text: string): string => (text || '').replace(EMOTION_TAG_RE, '');
+
 // 设计：不再做「中文舞台指示 → 语气标签」的猜测式映射（体验差、不可预测、有损）。
 // 改为「教 LLM 直接写官方 sound tag」+「客户端只做白名单消毒」。
 // 因此这里只保留一个合法标签白名单（上方 VALID_INTERJECTION_TAGS），不保留任何中→英映射表。
@@ -31,7 +36,7 @@ export const VALID_EMOTIONS = new Set([
  * LLM 现在被要求直接写官方英文 sound tag，所以这里不再翻译中文提示词。
  */
 const stripParensPreservingTags = (text: string): string => {
-  return text
+  return stripEmotionTags(text)
     // 中文括号舞台指示：一律删除
     .replace(/（[^）]{0,48}）/g, '')
     // 西文括号：仅保留白名单 sound tag，其余删除
@@ -260,8 +265,9 @@ export async function synthesizeSpeechDetailed(
     audio_setting: { format: 'mp3' },
     ...buildTtsExtras(vp),
   };
-  // Default to auto language detection so mixed CN/EN reads naturally.
-  payload.language_boost = options?.languageBoost || 'auto';
+  // Only set language_boost when an explicit voice language is chosen. Leaving it
+  // unset keeps Chinese prosody stable (auto-detect made the tone wobble per line).
+  if (options?.languageBoost) payload.language_boost = options.languageBoost;
 
   // Check the shared cache before hitting the network. Two call sites that
   // build the same payload get the same hash and reuse whichever one synthesized
