@@ -2804,16 +2804,28 @@ function startPostAbortHeartbeat(sessionId) {
   }, POST_ABORT_HEARTBEAT_MS);
   postAbortWatchers.set(sessionId, timer);
 }
+function flattenAmsgEvent(e) {
+  const cause = e.cause;
+  if (cause == null) return e;
+  return {
+    ...e,
+    cause: void 0,
+    causeName: cause?.name,
+    causeMessage: cause?.message ?? String(cause),
+    causeStatus: cause?.statusCode ?? cause?.status
+  };
+}
 function traceAmsgEvent(e) {
   if (e.type === "sse_stream_aborted" && typeof e.sessionId === "string") {
     startPostAbortHeartbeat(e.sessionId);
   }
+  const formatted = flattenAmsgEvent(e);
   if (ERROR_EVENT_TYPES.has(e.type)) {
-    console.error("[instant-push]", e);
+    console.error("[instant-push]", formatted);
     return;
   }
   if (TRACE_EVENT_TYPES.has(e.type)) {
-    console.log("[instant-push:trace]", e);
+    console.log("[instant-push:trace]", formatted);
   }
 }
 function parseBooleanFlag(value) {
@@ -3109,6 +3121,18 @@ async function runEmotionEval(body) {
     return "";
   }
 }
+function withSseAntiBufferingHeaders(resp) {
+  const contentType = resp.headers.get("content-type") || "";
+  if (!contentType.includes("text/event-stream")) return resp;
+  const headers = new Headers(resp.headers);
+  headers.set("Cache-Control", "no-cache, no-transform");
+  headers.set("X-Accel-Buffering", "no");
+  return new Response(resp.body, {
+    status: resp.status,
+    statusText: resp.statusText,
+    headers
+  });
+}
 var src_default = {
   fetch: async (request, env, ctx) => {
     const url = new URL(request.url);
@@ -3127,7 +3151,8 @@ var src_default = {
     const requestedEnv = withRequestOversizeTransport({ ...env }, body);
     const workerEnv = await prepareBlobStoreEnv(requestedEnv);
     scheduleD1BlobCleanup(workerEnv, ctx);
-    return await cfWorker.fetch(request, workerEnv, ctx);
+    const resp = await cfWorker.fetch(request, workerEnv, ctx);
+    return withSseAntiBufferingHeaders(resp);
   },
   async scheduled(_event, env) {
     const workerEnv = await prepareBlobStoreEnv(env);

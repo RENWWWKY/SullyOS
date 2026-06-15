@@ -145,16 +145,31 @@ function startPostAbortHeartbeat(sessionId: string): void {
   postAbortWatchers.set(sessionId, timer);
 }
 
+// 失败类事件的 cause 通常是个 Error 对象 (push 失败时带 statusCode, 如 413 = payload 超
+// 推送服务上限)。CF 日志直接打 Error 经常序列化成空对象, 把关键字段摊平成普通字段才看得见。
+function flattenAmsgEvent(e: { type: string; [k: string]: unknown }): Record<string, unknown> {
+  const cause = (e as any).cause;
+  if (cause == null) return e;
+  return {
+    ...e,
+    cause: undefined,
+    causeName: cause?.name,
+    causeMessage: cause?.message ?? String(cause),
+    causeStatus: cause?.statusCode ?? cause?.status,
+  };
+}
+
 function traceAmsgEvent(e: { type: string; [k: string]: unknown }): void {
   if (e.type === 'sse_stream_aborted' && typeof e.sessionId === 'string') {
     startPostAbortHeartbeat(e.sessionId);
   }
+  const formatted = flattenAmsgEvent(e);
   if (ERROR_EVENT_TYPES.has(e.type)) {
-    console.error('[instant-push]', e);
+    console.error('[instant-push]', formatted);
     return;
   }
   if (TRACE_EVENT_TYPES.has(e.type)) {
-    console.log('[instant-push:trace]', e);
+    console.log('[instant-push:trace]', formatted);
   }
 }
 
@@ -523,6 +538,30 @@ async function runEmotionEval(body: any): Promise<string> {
  * 并行调度副 API 情绪评估 + 推 emotion_update. 主回复的 LLM 生成 + 切段 + 推送
  * 由 amsg-instant Cloudflare adapter 接收 ctx 后自己挂进 waitUntil.
  */
+/**
+ * 给 SSE 响应补防压缩 / 防缓冲头, 再原样转发库返回的流式 Response。
+ *
+ * 库 (amsg-instant) 内部把 SSE 响应头写死成 text/event-stream + Cache-Control: no-cache,
+ * 没法配。问题排查时怀疑: 边缘 / 中间层若对这条流做压缩或缓冲, 每秒一发的 `: keepalive`
+ * 小帧会被攒在缓冲里不实时下发, 客户端看着像 idle → 到连接寿命上限被掐。
+ * 加 `no-transform` (CF 文档的禁边缘改写开关) + `X-Accel-Buffering: no` (nginx 类反代禁缓冲提示)
+ * 把这条路堵上。只动 text/event-stream 响应, JSON / 204 / blob 原样放行。
+ * 注意: 不设 `Content-Encoding: identity` —— 手动声明编码可能和流式传输打架, 反而引新坑;
+ * text/event-stream 本就不在 CF 自动压缩名单里, no-transform 已足够。
+ */
+function withSseAntiBufferingHeaders(resp: Response): Response {
+  const contentType = resp.headers.get('content-type') || '';
+  if (!contentType.includes('text/event-stream')) return resp;
+  const headers = new Headers(resp.headers);
+  headers.set('Cache-Control', 'no-cache, no-transform');
+  headers.set('X-Accel-Buffering', 'no');
+  return new Response(resp.body, {
+    status: resp.status,
+    statusText: resp.statusText,
+    headers,
+  });
+}
+
 export default {
   fetch: async (request: Request, env: Env, ctx: { waitUntil(p: Promise<unknown>): void }) => {
     const url = new URL(request.url);
@@ -544,7 +583,8 @@ export default {
     scheduleD1BlobCleanup(workerEnv, ctx);
 
     // 主回复由 amsg-instant 内部的 onBeforeLoop / waitUntil 驱动。
-    return await (cfWorker as any).fetch(request, workerEnv, ctx);
+    const resp = await (cfWorker as any).fetch(request, workerEnv, ctx);
+    return withSseAntiBufferingHeaders(resp);
   },
   async scheduled(_event: unknown, env: Env) {
     const workerEnv = await prepareBlobStoreEnv(env);

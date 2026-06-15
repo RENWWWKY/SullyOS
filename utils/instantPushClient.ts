@@ -812,6 +812,21 @@ function instantTrace(
   appendDevDebugLog('instant-push', { label: `trace:${event}`, data: entry });
 }
 
+// 从 Performance Resource Timing 里捞最近一条 /instant 请求实际协商的协议 (h3 / h2 / http/1.1)。
+// 纯客户端读取, 不依赖库; 拿不到就返 undefined。遥测用, 任何异常都吞掉不影响主流程。
+function getWorkerNextHopProtocol(): string | undefined {
+  try {
+    if (typeof performance === 'undefined' || !performance.getEntriesByType) return undefined;
+    const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (entries[i].name.includes('/instant')) {
+        return entries[i].nextHopProtocol || undefined;
+      }
+    }
+  } catch { /* ignore */ }
+  return undefined;
+}
+
 // /instant 与 /continue 都把预分配的 sessionId 作为 SW 投递的 requestId; 优先取
 // payload 自带的 instantTraceId (老格式兼容), 否则回落 sessionId / messageId。
 function resolveInstantTraceId(payload: any, fallback?: string): string {
@@ -1085,6 +1100,25 @@ export async function sendInstantPushAndAwaitReply(
           businessError: ack.businessError,
         });
       },
+      // 调试遥测 (amsg-client 2.6+ 支持; 旧版运行时会忽略此选项, 无副作用)。
+      // 把 raw reader.read() 的原始字节信息暴露出来 —— 含被解析层静默丢弃的 `: keepalive`
+      // 注释帧。用来判断「42s 静默期里到底有没有字节真的到 iOS」: 若每秒都有 keepalive
+      // 字节进来则连接活着 (业务首字节慢)，若一直 0 字节则是连接被中间层掐了。
+      // contentEncoding 首帧带回 —— 验证 SSE 有没有被边缘压缩 (压缩会吞掉小 keepalive 帧)。
+      // 用 spread+cast: 装的 amsg-client 2.5.0 的 .d.ts (DeliverOptions) 还没这个字段, 直接
+      // 写字面量会触发 TS excess-property 检查; spread 进来的属性不受该检查。升到 2.6 后可改回普通字段。
+      ...({
+        onRawRead: (meta: any) => {
+          instantTrace(sessionId, 'sse-raw-read', {
+            byteLength: meta?.byteLength,
+            done: meta?.done,
+            textPreview: meta?.textPreview,
+            contentEncoding: meta?.contentEncoding,
+            contentType: meta?.contentType,
+            status: meta?.status,
+          });
+        },
+      } as Record<string, unknown>),
     });
 
     // amsg-client 2.5.0 的 .d.ts 是 JSDoc + JS, TS 推断 result.detail 时只看到必填的
@@ -1110,6 +1144,8 @@ export async function sendInstantPushAndAwaitReply(
       cancelledByCaller: detail.cancelledByCaller,
       sseDeliveredOk,
       sseBusinessError,
+      // 这次 /instant 请求实际走的协议 (h3 = QUIC / h2 / http/1.1)，验证「HTTP/3 长连接 ~42s 被掐」假设。
+      nextHopProtocol: getWorkerNextHopProtocol(),
     });
 
     // ─── outcome 映射回 InstantOutcome ───────────────────────────────────
