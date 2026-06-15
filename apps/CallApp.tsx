@@ -6,6 +6,7 @@ import { minimaxFetch } from '../utils/minimaxEndpoint';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
 import { hashTtsParams, getCachedTts, saveCachedTts } from '../utils/ttsCache';
 import { cleanTextForTts, insertSpeechBreaks, convertHexAudioToBlob, fetchRemoteAudioBlob, VALID_EMOTIONS } from '../utils/minimaxTts';
+import { startStt, isSttSupported, type SttSession } from '../utils/speechToText';
 import { ContextBuilder } from '../utils/context';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import { RealtimeContextManager } from '../utils/realtimeContext';
@@ -253,6 +254,9 @@ const CallApp: React.FC = () => {
   const [callRecords, setCallRecords] = useState<CallRecord[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>(() => `call-${Date.now()}`);
   const [draftInput, setDraftInput] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const sttSessionRef = useRef<SttSession | null>(null);
+  const sttSupported = useMemo(() => isSttSupported(), []);
   const [audioUrl, setAudioUrl] = useState<string>('');
   const [traceId, setTraceId] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -347,7 +351,26 @@ const CallApp: React.FC = () => {
       URL.revokeObjectURL(currentBlobUrlRef.current);
       currentBlobUrlRef.current = null;
     }
+    sttSessionRef.current?.stop();
   }, []);
+  // Voice input: toggle speech-to-text into the draft input box.
+  const toggleStt = async () => {
+    if (isListening) { sttSessionRef.current?.stop(); return; }
+    if (!sttSupported) { addToast('当前环境不支持语音输入', 'info'); return; }
+    try {
+      setIsListening(true);
+      sttSessionRef.current = await startStt('zh-CN', {
+        onPartial: (t) => setDraftInput(t),
+        onFinal: (t) => setDraftInput(t),
+        onError: (m) => { if (m) addToast(m, 'info'); },
+        onEnd: () => { setIsListening(false); sttSessionRef.current = null; },
+      });
+    } catch (e: any) {
+      setIsListening(false);
+      sttSessionRef.current = null;
+      addToast(e?.message || '无法启动语音输入', 'error');
+    }
+  };
   useEffect(() => {
     if (!callStartedAt || ['idle', 'ended'].includes(callState)) return;
     const timer = window.setInterval(() => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000))), 1000);
@@ -601,6 +624,7 @@ const CallApp: React.FC = () => {
   const handleTurn = async () => {
     const minimaxApiKey = resolveMiniMaxApiKey(apiConfig);
     const voiceId = resolveVoiceId();
+    if (isListening) { sttSessionRef.current?.stop(); setIsListening(false); }
     const input = draftInput.trim();
     if (!input) return addToast('说点什么吧', 'info');
     if (['connecting', 'thinking'].includes(callState)) return addToast(`${selectedChar?.name || '对方'}还在想，等一等`, 'info');
@@ -1197,16 +1221,28 @@ const CallApp: React.FC = () => {
       </div>
       {showInputPanel && (
         <div className="px-4 pb-2">
-          <div className="rounded-2xl border border-white/12 bg-black/30 backdrop-blur-md p-2 flex gap-2" style={{ boxShadow: `inset 0 0 20px ${accentColor}1f` }}>
+          <div className="rounded-2xl border border-white/12 bg-black/30 backdrop-blur-md p-2 flex gap-2 items-center" style={{ boxShadow: `inset 0 0 20px ${accentColor}1f` }}>
+            {sttSupported && (
+              <button
+                onClick={toggleStt}
+                disabled={sendingBusy}
+                title={isListening ? '结束语音输入' : '按一下开始说话'}
+                className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition active:scale-90 disabled:opacity-40"
+                style={isListening ? { background: '#f0569f', boxShadow: '0 0 14px #f0569f99' } : { background: 'rgba(255,255,255,0.08)' }}
+              >
+                <Microphone size={18} weight="fill" className={isListening ? 'text-white animate-pulse' : 'text-white/70'} />
+              </button>
+            )}
             <input
               value={draftInput}
               onChange={(e) => setDraftInput(e.target.value)}
-              className="flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-white/35"
-              placeholder={sendingBusy ? `${selectedChar?.name || '对方'}正在想……` : `想对${selectedChar?.name || '对方'}说什么？`}
+              className="flex-1 bg-transparent px-2 text-sm outline-none placeholder:text-white/35"
+              placeholder={isListening ? '在听你说……' : sendingBusy ? `${selectedChar?.name || '对方'}正在想……` : `想对${selectedChar?.name || '对方'}说什么？`}
               autoFocus
             />
             <button onClick={handleTurn} disabled={sendingBusy} className="px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 transition active:scale-95" style={{ backgroundColor: accentColor, boxShadow: `0 0 16px ${accentColor}66` }}>{sendingBusy ? '…' : '说'}</button>
           </div>
+          {isListening && <div className="text-[10px] text-white/40 mt-1 px-1 animate-pulse">正在聆听，点麦克风结束</div>}
         </div>
       )}
       <div className="px-7 pb-7 pt-1.5">
