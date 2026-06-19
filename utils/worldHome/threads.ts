@@ -37,6 +37,25 @@ function pushMsg(thread: WorldThread, msg: WorldChatMessage) {
     if (thread.messages.length > THREAD_CAP) thread.messages = thread.messages.slice(-THREAD_CAP);
 }
 
+/** 去重归一化：去掉所有空白再比，避免「同一句只差换行/空格」漏判。 */
+const normLine = (s: string): string => s.replace(/\s+/g, '').trim();
+
+/**
+ * 同一发送者在近 window 条里是否已发过一模一样的内容。
+ * 用来挡住模型偶尔把上一轮的私聊/群聊原样再冒一遍——同一句在不同时间反复刷屏。
+ * 空白内容也判为「重复」直接丢弃。
+ */
+export function isDuplicateLine(thread: WorldThread, fromId: string, text: string, window = 60): boolean {
+    const n = normLine(text);
+    if (!n) return true;
+    const start = Math.max(0, thread.messages.length - window);
+    for (let i = thread.messages.length - 1; i >= start; i--) {
+        const m = thread.messages[i];
+        if (m.fromId === fromId && normLine(m.text) === n) return true;
+    }
+    return false;
+}
+
 /**
  * 把一个角色 beat 里的手机消息落进线程（dm → 私聊线程；group → 世界群聊）。
  * 在每个角色演绎完后立刻调用——链式后续角色才能在同一轮里收到。
@@ -63,6 +82,7 @@ export function applyBeatToThreads(
             threads.push(thread);
         }
         for (const line of dm.lines) {
+            if (isDuplicateLine(thread, beat.charId, line)) continue;
             pushMsg(thread, { id: genId('wm'), fromId: beat.charId, fromName: beat.charName, text: line, round, storyTime, timestamp: now });
         }
     }
@@ -71,6 +91,7 @@ export function applyBeatToThreads(
     if (groupLines.length > 0) {
         const group = threads.find(t => t.id === GROUP_THREAD_ID)!;
         for (const line of groupLines) {
+            if (isDuplicateLine(group, beat.charId, line)) continue;
             pushMsg(group, { id: genId('wm'), fromId: beat.charId, fromName: beat.charName, text: line, round, storyTime, timestamp: now });
         }
     }
@@ -90,6 +111,7 @@ export function applyNpcGroupLines(
     for (const l of lines) {
         const npc = world.npcs.find(n => n.name === l.name);
         if (!npc) continue; // 只收真实存在的 NPC 的发言
+        if (isDuplicateLine(group, npc.id, l.line)) continue;
         pushMsg(group, { id: genId('wm'), fromId: npc.id, fromName: npc.name, text: l.line, round, storyTime, timestamp: now });
     }
 }
@@ -117,6 +139,7 @@ export function applyNpcDms(
         }
         for (const line of dm.lines) {
             if (!line) continue;
+            if (isDuplicateLine(thread, npc.id, line)) continue;
             pushMsg(thread, { id: genId('wm'), fromId: npc.id, fromName: npc.name, text: line, round, storyTime, timestamp: now });
         }
     }

@@ -371,6 +371,18 @@ describe('世界消息线程（交替传递）', () => {
         expect(group.messages.map(m => m.fromName)).toEqual(['老板娘', '小满']);
     });
 
+    it('群聊/私聊去重：同一发送者把上一轮的话原样再发一遍会被丢掉（只差空白也算）', () => {
+        const world = mkWorld({ npcs: [{ id: 'n1', name: '老板娘', persona: '面包店' }] });
+        ensureThreads(world);
+        // 第1轮：小满在群里说「今天天气真好」
+        applyBeatToThreads(world, { charId: 'a', charName: '小满', location: 'x', narrative: 'y', mood: 'z', phone: { group: ['今天天气真好'] } }, members, 1, '第1天白天');
+        // 第2轮：小满又把同一句（只差空白）原样发一遍 → 丢弃；NPC 重复冒泡同句也丢
+        applyBeatToThreads(world, { charId: 'a', charName: '小满', location: 'x', narrative: 'y', mood: 'z', phone: { group: [' 今天天气真好 ', '换个新话题'] } }, members, 2, '第1天夜晚');
+        applyNpcGroupLines(world, [{ name: '老板娘', line: '新出炉的栗子包！' }, { name: '老板娘', line: '新出炉的栗子包！' }], 2, '第1天夜晚');
+        const group = groupThreadOf(world)!;
+        expect(group.messages.map(m => m.text)).toEqual(['今天天气真好', '换个新话题', '新出炉的栗子包！']);
+    });
+
     it('formatThreadForPrompt：本轮消息标【刚刚】，历史消息标剧情时间', () => {
         const world = mkWorld();
         applyBeatToThreads(world, { charId: 'a', charName: '小满', location: 'x', narrative: 'y', mood: 'z', phone: { dms: [{ to: '阿岚', lines: ['老消息'] }] } }, members, 1, '第1天白天');

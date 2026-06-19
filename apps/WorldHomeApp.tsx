@@ -179,7 +179,7 @@ const ChibiFigure: React.FC<{ char: CharacterProfile; size?: number; bob?: boole
 // 跨轮累积的真实会话：A 发的和 B 的回应交替出现）
 // ============================================================
 
-/** 会话气泡流：自己右绿、对方左白带头像，剧情时间变化处插分隔条。长按某条气泡可编辑/删除。 */
+/** 会话气泡流：自己右绿、对方左白带头像，剧情时间变化处插分隔条。点按某条气泡可编辑/删除。 */
 const ThreadBubbles: React.FC<{
     thread: WorldThread;
     selfId: string;
@@ -191,20 +191,6 @@ const ThreadBubbles: React.FC<{
     const avatarOf = (id: string) => members.find(m => m.id === id)?.avatar;
     const emojiOf = (id: string) => npcs.find(n => n.id === id)?.emoji || '🙂';
     const isNpc = (id: string) => npcs.some(n => n.id === id);
-    // 长按 ~500ms 触发编辑；手指移动超过 10px（在滚动）就取消
-    const pressRef = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
-    const endPress = () => { if (pressRef.current) { clearTimeout(pressRef.current.timer); pressRef.current = null; } };
-    const startPress = (e: React.PointerEvent, m: WorldChatMessage) => {
-        if (!onPick) return;
-        endPress();
-        const x = e.clientX, y = e.clientY;
-        const timer = setTimeout(() => { endPress(); onPick(m); }, 500);
-        pressRef.current = { timer, x, y };
-    };
-    const movePress = (e: React.PointerEvent) => {
-        const s = pressRef.current;
-        if (s && (Math.abs(e.clientX - s.x) > 10 || Math.abs(e.clientY - s.y) > 10)) endPress();
-    };
     const els: React.ReactNode[] = [];
     let lastTime = '';
     thread.messages.forEach(m => {
@@ -228,14 +214,10 @@ const ThreadBubbles: React.FC<{
                 )}
                 <div className={`max-w-[78%] ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
                     {!mine && showNames && <div className="text-[8.5px] text-white/45 font-bold mb-0.5 px-1">{m.fromName}{isNpc(m.fromId) ? ' · NPC' : ''}</div>}
-                    <div className={`px-2.5 py-1.5 text-[11px] leading-[1.5] shadow-sm ${onPick ? 'select-none' : ''} ${mine
+                    <div role={onPick ? 'button' : undefined} onClick={onPick ? () => onPick(m) : undefined}
+                        className={`px-2.5 py-1.5 text-[11px] leading-[1.5] shadow-sm ${onPick ? 'cursor-pointer active:opacity-80 transition-opacity' : ''} ${mine
                         ? 'rounded-2xl rounded-br-md bg-gradient-to-br from-emerald-400 to-emerald-500 text-white'
-                        : 'rounded-2xl rounded-bl-md bg-white/95 text-slate-800'}`}
-                        onPointerDown={onPick ? e => startPress(e, m) : undefined}
-                        onPointerMove={onPick ? movePress : undefined}
-                        onPointerUp={onPick ? endPress : undefined}
-                        onPointerLeave={onPick ? endPress : undefined}
-                        onPointerCancel={onPick ? endPress : undefined}>
+                        : 'rounded-2xl rounded-bl-md bg-white/95 text-slate-800'}`}>
                         {m.text}
                     </div>
                 </div>
@@ -442,7 +424,7 @@ const PhoneModal: React.FC<{
                                                         <button onClick={() => setDmOpenId(null)} className="flex items-center gap-1 text-[11px] font-bold text-white/80 active:scale-95 transition-transform">
                                                             <CaretRight size={12} weight="bold" className="rotate-180" />{otherName}
                                                         </button>
-                                                        {onEditContent && <span className="text-[8px] text-white/35">长按消息可编辑/删除</span>}
+                                                        {onEditContent && <span className="text-[8px] text-white/35">点按消息可编辑/删除</span>}
                                                     </div>
                                                     {folded && (
                                                         <button onClick={() => setDmExpanded(true)} className="w-full text-[10px] font-bold py-1.5 rounded-full bg-white/10 text-white/60 active:scale-95 transition-transform">
@@ -491,7 +473,7 @@ const PhoneModal: React.FC<{
                                         const shownGroup = folded ? { ...group, messages: group.messages.slice(-FOLD) } : group;
                                         return (
                                             <div className="space-y-1.5">
-                                                <div className="text-center text-[9px] text-white/40 font-bold pb-1">「{group.name}」 · {group.memberIds.length} 人{world.npcs.length > 0 ? ` + ${world.npcs.length} NPC` : ''}{onEditContent ? ' · 长按消息可编辑/删除' : ''}</div>
+                                                <div className="text-center text-[9px] text-white/40 font-bold pb-1">「{group.name}」 · {group.memberIds.length} 人{world.npcs.length > 0 ? ` + ${world.npcs.length} NPC` : ''}{onEditContent ? ' · 点按消息可编辑/删除' : ''}</div>
                                                 {folded && (
                                                     <button onClick={() => setGroupExpanded(true)} className="w-full text-[10px] font-bold py-1.5 rounded-full bg-white/10 text-white/60 active:scale-95 transition-transform">
                                                         展开更早的 {group.messages.length - FOLD} 条
