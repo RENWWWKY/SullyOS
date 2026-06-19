@@ -25,8 +25,12 @@ type LinkedMemoryUI = {
 
 // ─── 房间图标映射 ─────────────────────────────────────
 
-/** 顶部安全区 padding：优先用 iOS safe-area-inset-top，没有则退回 40px，避免手机状态栏遮挡按钮 */
-const SAFE_PAD_TOP: React.CSSProperties['paddingTop'] = 'max(40px, calc(env(safe-area-inset-top) + 16px))';
+/**
+ * 顶部安全区 padding：用项目统一的 --safe-top（含刘海/灵动岛高度与 standalone PWA 回退），
+ * 再加 16px 呼吸间距，并保证至少 40px，避免状态栏遮挡按钮。
+ * 各视图的最外层滚动容器（自带背景）直接套这个 paddingTop，让背景顺着填到刘海下方。
+ */
+const SAFE_PAD_TOP: React.CSSProperties['paddingTop'] = 'max(40px, calc(var(--safe-top) + 16px))';
 
 /** 房间图标：用纯线条 SVG 代替 emoji，用 currentColor 跟随房间主题色 */
 const RoomIcon: React.FC<{ room: MemoryRoom; size?: number; style?: React.CSSProperties }> = ({ room, size = 20, style }) => {

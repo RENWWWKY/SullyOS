@@ -390,14 +390,16 @@ Format:
     // --- Renderers ---
 
     const renderHeader = (title: string, backAction: () => void, extraAction?: React.ReactNode) => (
-        <div className="h-14 flex items-center justify-between px-4 bg-white/80 backdrop-blur-md text-slate-800 shrink-0 z-20 border-b border-slate-200">
-            <button onClick={backAction} className="p-2 -ml-2 rounded-full hover:bg-slate-100 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-                </svg>
-            </button>
-            <span className="font-bold text-base tracking-wide truncate max-w-[200px]">{title}</span>
-            <div className="w-8 flex justify-end">{extraAction}</div>
+        <div className="bg-white/80 backdrop-blur-md shrink-0 z-20 border-b border-slate-200" style={{ paddingTop: 'var(--safe-top)' }}>
+            <div className="h-14 flex items-center justify-between px-4 text-slate-800">
+                <button onClick={backAction} className="p-2 -ml-2 rounded-full hover:bg-slate-100 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                    </svg>
+                </button>
+                <span className="font-bold text-base tracking-wide truncate max-w-[200px]">{title}</span>
+                <div className="w-8 flex justify-end">{extraAction}</div>
+            </div>
         </div>
     );
 
@@ -633,12 +635,14 @@ Format:
                 <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none z-20" />
 
                 {/* Status bar */}
-                <div className="h-8 flex justify-between px-6 items-center z-20 relative pt-3 text-[#c8c6c5]">
-                    <span className="text-[11px] font-semibold tracking-tight">9:41</span>
-                    <div className="flex gap-1.5 items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3"><path d="M2 22h3V10H2v12zm6 0h3V6H8v16zm6 0h3V2h-3v20zm6 0h3v-8h-3v8z"/></svg>
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M1.371 8.143c5.858-5.857 15.356-5.857 21.213 0a.75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.06 0c-4.98-4.979-13.053-4.979-18.032 0a.75.75 0 0 1-1.06 0l-.53-.53a.75.75 0 0 1 0-1.06Zm3.182 3.182c4.1-4.1 10.749-4.1 14.85 0a.75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.062 0 8.25 8.25 0 0 0-11.667 0 .75.75 0 0 1-1.06 0l-.53-.53a.75.75 0 0 1 0-1.06Zm3.204 3.182a6 6 0 0 1 8.486 0 .75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.061 0 3.75 3.75 0 0 0-5.304 0 .75.75 0 0 1-1.06 0l-.53-.53a.75.75 0 0 1 0-1.06Zm3.182 3.182a1.5 1.5 0 0 1 2.122 0 .75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.061 0l-.53-.53a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
-                        <div className="w-4 h-2 border border-current rounded-[2px] relative"><div className="absolute left-0 top-0 bottom-0 bg-current w-3/4"></div></div>
+                <div className="z-20 relative" style={{ paddingTop: 'var(--safe-top)' }}>
+                    <div className="h-8 flex justify-between px-6 items-center pt-3 text-[#c8c6c5]">
+                        <span className="text-[11px] font-semibold tracking-tight">9:41</span>
+                        <div className="flex gap-1.5 items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3"><path d="M2 22h3V10H2v12zm6 0h3V6H8v16zm6 0h3V2h-3v20zm6 0h3v-8h-3v8z"/></svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M1.371 8.143c5.858-5.857 15.356-5.857 21.213 0a.75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.06 0c-4.98-4.979-13.053-4.979-18.032 0a.75.75 0 0 1-1.06 0l-.53-.53a.75.75 0 0 1 0-1.06Zm3.182 3.182c4.1-4.1 10.749-4.1 14.85 0a.75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.062 0 8.25 8.25 0 0 0-11.667 0 .75.75 0 0 1-1.06 0l-.53-.53a.75.75 0 0 1 0-1.06Zm3.204 3.182a6 6 0 0 1 8.486 0 .75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.061 0 3.75 3.75 0 0 0-5.304 0 .75.75 0 0 1-1.06 0l-.53-.53a.75.75 0 0 1 0-1.06Zm3.182 3.182a1.5 1.5 0 0 1 2.122 0 .75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.061 0l-.53-.53a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
+                            <div className="w-4 h-2 border border-current rounded-[2px] relative"><div className="absolute left-0 top-0 bottom-0 bg-current w-3/4"></div></div>
+                        </div>
                     </div>
                 </div>
 
@@ -714,12 +718,14 @@ Format:
     if (view === 'select') {
         return (
             <div className="absolute inset-0 flex flex-col bg-slate-900 font-light overflow-hidden">
-                <div className="h-20 pt-4 flex items-center justify-between px-4 border-b border-slate-800 bg-slate-900/80 sticky top-0 z-10 shrink-0">
-                    <button onClick={closeApp} className="p-2 -ml-2 rounded-full hover:bg-white/10 text-white">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
-                    </button>
-                    <span className="font-bold text-white tracking-widest uppercase text-sm">Target Device</span>
-                    <div className="w-8"></div>
+                <div className="border-b border-slate-800 bg-slate-900/80 sticky top-0 z-10 shrink-0" style={{ paddingTop: 'var(--safe-top)' }}>
+                    <div className="h-20 pt-4 flex items-center justify-between px-4">
+                        <button onClick={closeApp} className="p-2 -ml-2 rounded-full hover:bg-white/10 text-white">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                        </button>
+                        <span className="font-bold text-white tracking-widest uppercase text-sm">Target Device</span>
+                        <div className="w-8"></div>
+                    </div>
                 </div>
                 <div className="flex-1 min-h-0 p-6 grid grid-cols-2 gap-5 overflow-y-auto pb-20 no-scrollbar overscroll-contain content-start">
                     {characters.map(c => (

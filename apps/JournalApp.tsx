@@ -879,12 +879,14 @@ ${charPart}
             <div className="h-full w-full bg-amber-50 flex flex-col font-light">
                 {introModal}
                 {archiveResultModal}
-                <div className="pt-12 pb-4 px-6 border-b border-amber-100 bg-amber-50/80 backdrop-blur-sm sticky top-0 z-20 flex items-center justify-between shrink-0 h-24 box-border">
-                    <button onClick={closeApp} className="p-2 -ml-2 rounded-full hover:bg-amber-100/50 active:scale-90 transition-transform">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6 text-amber-900"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
-                    </button>
-                    <span className="font-bold text-amber-900 text-lg tracking-wide">选择日记本</span>
-                    <div className="w-8"></div>
+                <div className="border-b border-amber-100 bg-amber-50/80 backdrop-blur-sm sticky top-0 z-20 shrink-0" style={{ paddingTop: 'var(--safe-top)' }}>
+                    <div className="pb-4 px-6 flex items-center justify-between">
+                        <button onClick={closeApp} className="p-2 -ml-2 rounded-full hover:bg-amber-100/50 active:scale-90 transition-transform">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6 text-amber-900"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                        </button>
+                        <span className="font-bold text-amber-900 text-lg tracking-wide">选择日记本</span>
+                        <div className="w-8"></div>
+                    </div>
                 </div>
                 
                 <div className="p-6 grid grid-cols-2 gap-5 overflow-y-auto pb-20 no-scrollbar">
@@ -908,7 +910,7 @@ ${charPart}
             <div className="h-full w-full bg-white flex flex-col font-light relative">
                 {introModal}
                 {archiveResultModal}
-                <div className="pt-12 pb-6 px-6 bg-amber-500 shadow-lg shrink-0 rounded-b-[2rem] z-20">
+                <div className="pb-6 px-6 bg-amber-500 shadow-lg shrink-0 rounded-b-[2rem] z-20" style={{ paddingTop: 'max(3rem, var(--safe-top))' }}>
                     <div className="flex justify-between items-start mb-4">
                          <button onClick={() => setMode('select')} className="text-white/80 hover:text-white transition-colors">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
@@ -990,7 +992,8 @@ ${charPart}
             {archiveResultModal}
 
             {/* Editor Header */}
-            <div className="pt-12 pb-3 px-4 bg-[#1a1a1a]/90 backdrop-blur-md flex items-center justify-between text-white shrink-0 z-30 h-24 box-border">
+            <div className="bg-[#1a1a1a]/90 backdrop-blur-md text-white shrink-0 z-30" style={{ paddingTop: 'var(--safe-top)' }}>
+            <div className="pb-3 px-4 flex items-center justify-between">
                 <button onClick={() => setMode('calendar')} className="p-2 -ml-2 text-white/60 hover:text-white rounded-full active:bg-white/10 transition-colors">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                 </button>
@@ -1048,6 +1051,7 @@ ${charPart}
                         保存
                     </button>
                 </div>
+            </div>
             </div>
 
             {/* Main Page Area */}

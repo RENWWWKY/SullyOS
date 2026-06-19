@@ -1,21 +1,29 @@
 import { describe, it, expect } from 'vitest';
 import { AppID } from '../types';
-import { shellHandlesSafeArea } from './safeAreaApps';
+import { shellHandlesSafeArea, SELF_SAFE_AREA_APPS } from './safeAreaApps';
+
+// 已迁移成自理安全区的 App：外壳不该再替它加 padding（否则顶部双重让位、留白过多）。
+// 这是回归守卫——谁把某个 App 从 SELF_SAFE_AREA_APPS 删了，对应断言立刻挂。
+const SELF_HANDLED: AppID[] = [
+    AppID.Launcher, AppID.VRWorld, AppID.Chat, AppID.GroupChat, AppID.Social,
+    AppID.Settings, AppID.Character, AppID.ThemeMaker, AppID.Appearance, AppID.Gallery,
+    AppID.Date, AppID.User, AppID.Journal, AppID.Schedule, AppID.Room, AppID.CheckPhone,
+    AppID.Study, AppID.FAQ, AppID.Game, AppID.Worldbook, AppID.Novel, AppID.Bank,
+    AppID.XhsStock, AppID.XhsFreeRoam, AppID.Browser, AppID.Songwriting, AppID.Music,
+    AppID.Call, AppID.VoiceDesigner, AppID.Guidebook, AppID.LifeSim, AppID.MemoryPalace,
+    AppID.Handbook, AppID.QQBridge, AppID.HotNews, AppID.WorldHome, AppID.CharCreatorDev,
+    AppID.SpecialMoments,
+];
 
 describe('shellHandlesSafeArea', () => {
-    // 回归守卫：Spark 已迁移成自理安全区，外壳就不该再加 padding，否则顶部会双重让位（留白过多）。
-    // 旧行为（Social 不在名单）下此条挂；迁移后过。防止以后误把 Social 移出名单导致回退。
-    it('Spark(Social) 自理安全区，外壳不应再加 padding', () => {
-        expect(shellHandlesSafeArea(AppID.Social)).toBe(false);
+    it('所有已登记 App 都自理安全区，外壳不加 padding', () => {
+        for (const appId of SELF_HANDLED) {
+            expect(shellHandlesSafeArea(appId)).toBe(false);
+        }
     });
 
-    // 对照：尚未迁移的 App 仍由外壳兜底让位，避免顶栏怼进刘海。
-    it('未迁移的 App（设置）仍由外壳让位安全区', () => {
-        expect(shellHandlesSafeArea(AppID.Settings)).toBe(true);
-    });
-
-    // 既有自理 App 不应回退（聊天/彼方/桌面）。
-    it('既有自理 App（聊天）保持自理', () => {
-        expect(shellHandlesSafeArea(AppID.Chat)).toBe(false);
+    // 双向一致：名单里有的断言里也要有，反之亦然，防止以后加/删 App 时漏更新其中一处。
+    it('自理名单与断言列表一一对应（防漏登记）', () => {
+        expect([...SELF_HANDLED].sort()).toEqual([...SELF_SAFE_AREA_APPS].sort());
     });
 });
