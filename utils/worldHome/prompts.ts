@@ -366,6 +366,7 @@ ${groupSection}
 - timeline 给 3~6 条，时间要符合${storyTime.includes('早') ? '清晨到上午' : storyTime.includes('中午') ? '午间到下午' : '傍晚到深夜'}；**shared=false 表示这段你想瞒着**（别人看不到，但可能成为伏笔）。
 - 信息可见性：动态=公开；timeline(shared=true)=别人能知道；私聊=仅对方；群聊=全员；narrative 和 memo=完全私人。瞒事就让对应 timeline 条目 shared=false 并写进 secrets。
 - ${world.mode === 'heavy' ? `这个世界里不存在 ${userName || '用户'}，所有字段都绝不出现 ta。` : world.mode === 'light' ? `${userName || '用户'} 是你心里最重要的人，但此刻不在场——可以在 narrative、memo 或动态里自然流露惦记。` : `${userName || '用户'} 只是世界里的普通一员，不必特意提及。`}
+- 动态（phone.posts）必须是这半天**新的**所见所感，**绝不能**把上面「社交媒体」里已经出现过的文案原样或换汤不换药地再发一遍——换件事、换个角度、换种心情写；没有新东西可发就宁可空着。
 - 手机里标【刚刚】的消息该回就回（phone.dms / phone.group），已读不回也行，但要符合你的性格；鼓励聊得丰富些。
 - **想私下联系谁，就必须写进 phone.dms（to=对方名字 + lines），这才是真的把消息发出去、对方才收得到。只在 narrative 正文里写"我给ta发了条私聊"是不算数的——对方收不到，那条私聊等于没发。** 可以同时私聊好几个不同的人。
 - dialogues 只在你的 timeline 和对方真的有共处时才用；不在一起就用手机，或者互相挂念/冷战都行——聚焦你自己。

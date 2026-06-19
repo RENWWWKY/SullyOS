@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { extractJson, parseCharBeat, parseNpcScene, storyTimeLabel, buildModeRule, buildWorldCharTurn, parseRolledNpcs, buildNpcRollPrompt, NARRATIVE_STYLES, narrationPersonGuide, realNowSeg, realObserveTarget, worldTimeLabel } from './prompts';
-import { applyRelationshipDeltas, collectSeeds, buildSummary } from './engine';
+import { applyRelationshipDeltas, collectSeeds, buildSummary, dropDuplicatePosts } from './engine';
 import { ensureThreads, applyBeatToThreads, applyNpcGroupLines, applyNpcDms, npcInboxes, dmThreadsOf, groupThreadOf, formatThreadForPrompt, dmThreadId, GROUP_THREAD_ID } from './threads';
 import { WorldScheduler } from './scheduler';
 import type { CharacterProfile, WorldProfile } from '../../types';
@@ -482,6 +482,24 @@ describe('伏笔与摘要防泄密', () => {
         expect(summary).not.toContain('酒吧');
         expect(summary).not.toContain('前任');
         expect(summary).not.toContain('崩溃');
+    });
+});
+
+describe('动态去重 dropDuplicatePosts', () => {
+    it('剔除和最近动态重复的 post（含只差空白/换行的）', () => {
+        const beat: any = {
+            charId: 'b', charName: '阿岚', location: 'x', narrative: 'y', mood: 'z',
+            phone: { posts: ['有些东西揣在怀里沉甸甸的', '今天阳光真好', ' 今天阳光真好 '] },
+        };
+        dropDuplicatePosts(beat, [{ post: '有些东西揣在怀里沉甸甸的' }]);
+        // 与最近动态重复的第一条被剔除；本拍内只差空白的重复也只留一条
+        expect(beat.phone.posts).toEqual(['今天阳光真好']);
+    });
+
+    it('没有重复时原样保留；空白条目被剔除', () => {
+        const beat: any = { charId: 'b', charName: '阿岚', location: 'x', narrative: 'y', mood: 'z', phone: { posts: ['全新的一条', '   '] } };
+        dropDuplicatePosts(beat, [{ post: '别的内容' }]);
+        expect(beat.phone.posts).toEqual(['全新的一条']);
     });
 });
 

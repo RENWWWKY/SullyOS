@@ -121,6 +121,26 @@ function collectRecentPosts(lastBeats: WorldCharBeat[], beatsSoFar: WorldCharBea
     return out.slice(-10);
 }
 
+/** 动态去重用的归一化（去掉空白，避免「同一条只差换行/空格」漏判）。 */
+const normalizePost = (s: string): string => s.replace(/\s+/g, '').trim();
+
+/**
+ * 把这一拍里和「最近动态」重复的 post 丢掉——模型偶尔会把上一轮的动态原样再发一遍，
+ * 落库前先剔除，免得手机动态里同一条文案在不同时间反复刷屏。
+ */
+export function dropDuplicatePosts(beat: WorldCharBeat, recent: { post: string }[]): void {
+    if (!beat.phone?.posts?.length) return;
+    const seen = new Set(recent.map(r => normalizePost(r.post)));
+    const kept: string[] = [];
+    for (const p of beat.phone.posts) {
+        const n = normalizePost(p);
+        if (!n || seen.has(n)) continue;
+        seen.add(n);
+        kept.push(p);
+    }
+    beat.phone = { ...beat.phone, posts: kept };
+}
+
 /**
  * 把 beat 里瞒下的事收进伏笔栏（pending）。
  * 显式 secrets 优先；timeline 里 shared=false 但没写进 secrets 的条目自动补一条。
@@ -303,6 +323,8 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
                     }),
                 }, 2, 0, { appName: '家园', charId: char.id, charName: char.name, purpose: `演绎 · ${world.name}` });
                 const beat = parseCharBeat(data.choices?.[0]?.message?.content || '', char, memberNames, world.npcs.map(n => n.name));
+                // 落库前剔除和最近动态重复的 post（上一轮 + 本轮已演绎角色）
+                dropDuplicatePosts(beat, collectRecentPosts(lastBeats, beats));
                 beats.push(beat);
                 // 该角色发出的私聊/群聊立刻落线程——后面还没演绎的角色这一轮就能收到并回应
                 applyBeatToThreads(world, beat, members, round, storyTime);
@@ -550,6 +572,8 @@ export async function rerollWorldCharBeat(
             }),
         }, 2, 0, { appName: '家园', charId: char.id, charName: char.name, purpose: `重演 · ${world.name}` });
         const beat = parseCharBeat(data.choices?.[0]?.message?.content || '', char, memberNames, world.npcs.map(n => n.name));
+        // 重演这一拍同样剔除和最近动态重复的 post
+        dropDuplicatePosts(beat, collectRecentPosts(prevEp?.beats || [], otherBeats));
 
         const newBeats = hadBeat ? episode.beats.map(b => b.charId === charId ? beat : b) : [...episode.beats, beat];
         const stillFailed = (episode.failedCharIds || []).filter(id => id !== charId);

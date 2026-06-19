@@ -29,7 +29,18 @@ import { SIM_CHAPTER_DAYS, SIM_CHAPTER_CLOCKS } from '../utils/worldHome/chapter
 import { dmThreadsOf, groupThreadOf } from '../utils/worldHome/threads';
 import { safeFetchJson } from '../utils/safeApi';
 import { WORLD_API_KEY, WORLD_CUSTOM_STYLE_KEY } from '../utils/worldHome/localBackup';
-import type { WorldProfile, WorldEpisode, WorldHomeMode, WorldTimeMode, WorldHouse, WorldThread, WorldNarrativeStyle, CharacterProfile, WorldCharBeat, APIConfig, ApiPreset } from '../types';
+import type { WorldProfile, WorldEpisode, WorldHomeMode, WorldTimeMode, WorldHouse, WorldThread, WorldChatMessage, WorldNarrativeStyle, CharacterProfile, WorldCharBeat, APIConfig, ApiPreset } from '../types';
+
+/**
+ * 家园里「生成内容」的可编辑/删除目标（手机里的动态/备忘/聊天）。
+ * newText=null 表示删除；否则替换文本。
+ *  - post/memo 落在 episode.beats[charId] 上（按 round 定位 episode）
+ *  - msg 落在 world.threads[threadId].messages 上（按 msgId 定位）
+ */
+type WHEditTarget =
+    | { type: 'post'; round: number; charId: string; idx: number }
+    | { type: 'memo'; round: number; charId: string; idx: number }
+    | { type: 'msg'; threadId: string; msgId: string };
 
 /** 自定义文风的本地收藏 / 家园全局 API 的 localStorage key —— 与备份工具共用同一组，避免漂移。 */
 const CUSTOM_STYLE_KEY = WORLD_CUSTOM_STYLE_KEY;
@@ -168,17 +179,32 @@ const ChibiFigure: React.FC<{ char: CharacterProfile; size?: number; bob?: boole
 // 跨轮累积的真实会话：A 发的和 B 的回应交替出现）
 // ============================================================
 
-/** 会话气泡流：自己右绿、对方左白带头像，剧情时间变化处插分隔条。 */
+/** 会话气泡流：自己右绿、对方左白带头像，剧情时间变化处插分隔条。长按某条气泡可编辑/删除。 */
 const ThreadBubbles: React.FC<{
     thread: WorldThread;
     selfId: string;
     members: CharacterProfile[];
     npcs: WorldProfile['npcs'];
     showNames?: boolean;
-}> = ({ thread, selfId, members, npcs, showNames }) => {
+    onPick?: (m: WorldChatMessage) => void;
+}> = ({ thread, selfId, members, npcs, showNames, onPick }) => {
     const avatarOf = (id: string) => members.find(m => m.id === id)?.avatar;
     const emojiOf = (id: string) => npcs.find(n => n.id === id)?.emoji || '🙂';
     const isNpc = (id: string) => npcs.some(n => n.id === id);
+    // 长按 ~500ms 触发编辑；手指移动超过 10px（在滚动）就取消
+    const pressRef = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
+    const endPress = () => { if (pressRef.current) { clearTimeout(pressRef.current.timer); pressRef.current = null; } };
+    const startPress = (e: React.PointerEvent, m: WorldChatMessage) => {
+        if (!onPick) return;
+        endPress();
+        const x = e.clientX, y = e.clientY;
+        const timer = setTimeout(() => { endPress(); onPick(m); }, 500);
+        pressRef.current = { timer, x, y };
+    };
+    const movePress = (e: React.PointerEvent) => {
+        const s = pressRef.current;
+        if (s && (Math.abs(e.clientX - s.x) > 10 || Math.abs(e.clientY - s.y) > 10)) endPress();
+    };
     const els: React.ReactNode[] = [];
     let lastTime = '';
     thread.messages.forEach(m => {
@@ -202,9 +228,14 @@ const ThreadBubbles: React.FC<{
                 )}
                 <div className={`max-w-[78%] ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
                     {!mine && showNames && <div className="text-[8.5px] text-white/45 font-bold mb-0.5 px-1">{m.fromName}{isNpc(m.fromId) ? ' · NPC' : ''}</div>}
-                    <div className={`px-2.5 py-1.5 text-[11px] leading-[1.5] shadow-sm ${mine
+                    <div className={`px-2.5 py-1.5 text-[11px] leading-[1.5] shadow-sm ${onPick ? 'select-none' : ''} ${mine
                         ? 'rounded-2xl rounded-br-md bg-gradient-to-br from-emerald-400 to-emerald-500 text-white'
-                        : 'rounded-2xl rounded-bl-md bg-white/95 text-slate-800'}`}>
+                        : 'rounded-2xl rounded-bl-md bg-white/95 text-slate-800'}`}
+                        onPointerDown={onPick ? e => startPress(e, m) : undefined}
+                        onPointerMove={onPick ? movePress : undefined}
+                        onPointerUp={onPick ? endPress : undefined}
+                        onPointerLeave={onPick ? endPress : undefined}
+                        onPointerCancel={onPick ? endPress : undefined}>
                         {m.text}
                     </div>
                 </div>
@@ -221,7 +252,9 @@ const PhoneModal: React.FC<{
     members: CharacterProfile[];
     initialTab?: 'feed' | 'dm' | 'group' | 'memo';
     onClose: () => void;
-}> = ({ ownerId, world, episodes, members, initialTab, onClose }) => {
+    /** 编辑/删除生成内容（动态/备忘/聊天）；newText=null 表示删除 */
+    onEditContent?: (target: WHEditTarget, newText: string | null) => void | Promise<void>;
+}> = ({ ownerId, world, episodes, members, initialTab, onClose, onEditContent }) => {
     const [tab, setTab] = useState<'feed' | 'dm' | 'group' | 'memo'>(initialTab || 'feed');
     const owner = members.find(m => m.id === ownerId);
     const ownerName = owner?.name || '?';
@@ -237,24 +270,24 @@ const PhoneModal: React.FC<{
     const archivedClock = world.simSummarizedClock || 0;
     const archivedDays = Math.floor(archivedClock / 3);
 
-    // 动态：跨轮聚合该角色发过的 posts（新的在上；归档的不再显示）。key 用于关联点赞/评论。
+    // 动态：跨轮聚合该角色发过的 posts（新的在上；归档的不再显示）。key 用于关联点赞/评论；round+idx 用于编辑/删除。
     const feed = useMemo(() => {
-        const out: { storyTime: string; location: string; post: string; round: number; key: string }[] = [];
+        const out: { storyTime: string; location: string; post: string; round: number; idx: number; key: string }[] = [];
         for (const ep of episodes) {
             if (ep.round <= archivedClock) continue;
             const b = ep.beats.find(x => x.charId === ownerId);
-            (b?.phone?.posts || []).forEach((p, idx) => out.push({ storyTime: ep.storyTime, location: b!.location, post: p, round: ep.round, key: `${ep.round}_${ownerId}_${idx}` }));
+            (b?.phone?.posts || []).forEach((p, idx) => out.push({ storyTime: ep.storyTime, location: b!.location, post: p, round: ep.round, idx, key: `${ep.round}_${ownerId}_${idx}` }));
         }
         return out;
     }, [episodes, ownerId, archivedClock]);
 
-    // 备忘录：跨轮聚合（私人，只有屏幕外的玩家翻得到；归档的不再显示）
+    // 备忘录：跨轮聚合（私人，只有屏幕外的玩家翻得到；归档的不再显示）。round+idx 用于编辑/删除。
     const memos = useMemo(() => {
-        const out: { storyTime: string; text: string }[] = [];
+        const out: { storyTime: string; text: string; round: number; idx: number }[] = [];
         for (const ep of episodes) {
             if (ep.round <= archivedClock) continue;
             const b = ep.beats.find(x => x.charId === ownerId);
-            for (const m of b?.memo || []) out.push({ storyTime: ep.storyTime, text: m });
+            (b?.memo || []).forEach((m, idx) => out.push({ storyTime: ep.storyTime, text: m, round: ep.round, idx }));
         }
         return out;
     }, [episodes, ownerId, archivedClock]);
@@ -270,6 +303,24 @@ const PhoneModal: React.FC<{
     const [dmExpanded, setDmExpanded] = useState(false);
     const [groupExpanded, setGroupExpanded] = useState(false);
     useEffect(() => { setDmExpanded(false); }, [dmOpenId]);
+
+    // 聊天像真手机一样：进会话/切到群聊默认落到底部（最新消息），不必从头往下滑
+    const scrollRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if ((tab === 'dm' && dmOpenId) || tab === 'group') {
+            const el = scrollRef.current;
+            if (el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+        }
+    }, [tab, dmOpenId, dmExpanded, groupExpanded]);
+
+    // 编辑/删除某条生成内容的弹层
+    const [editing, setEditing] = useState<{ target: WHEditTarget; text: string; title: string; canDelete: boolean } | null>(null);
+    const [confirmDel, setConfirmDel] = useState(false);
+    useEffect(() => { setConfirmDel(false); }, [editing]);
+    const submitEdit = async (newText: string | null) => {
+        if (editing && onEditContent) await onEditContent(editing.target, newText);
+        setEditing(null);
+    };
 
     // 把手机内容（动态）转发到「和 ta 的聊天」里
     const [sharedKeys, setSharedKeys] = useState<Set<string>>(new Set());
@@ -315,7 +366,7 @@ const PhoneModal: React.FC<{
                             ))}
                         </div>
                         {/* 内容 */}
-                        <div className="flex-1 overflow-y-auto no-scrollbar px-3.5 py-3 space-y-2">
+                        <div ref={scrollRef} className="flex-1 overflow-y-auto no-scrollbar px-3.5 py-3 space-y-2">
                             {tab === 'feed' && (
                                 feed.length === 0
                                     ? <div className="text-center text-[11px] text-white/40 pt-16">还没发过动态{archivedDays > 0 ? `（更早 ${archivedDays} 天已归档进编年史）` : ''}</div>
@@ -343,6 +394,12 @@ const PhoneModal: React.FC<{
                                                             <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center gap-3 text-slate-400">
                                                                 <span className="flex items-center gap-0.5 text-[9px]"><Heart size={11} weight={rx?.likes ? 'fill' : 'regular'} className={rx?.likes ? 'text-rose-400' : ''} /> {rx?.likes || 0}</span>
                                                                 <span className="flex items-center gap-0.5 text-[9px]"><ChatCircleDots size={11} /> {rx?.comments.length || 0}</span>
+                                                                {onEditContent && (
+                                                                    <button onClick={() => setEditing({ target: { type: 'post', round: f.round, charId: ownerId, idx: f.idx }, text: f.post, title: '编辑动态', canDelete: true })}
+                                                                        className="flex items-center gap-0.5 text-[9px] font-bold text-slate-400 active:scale-95">
+                                                                        <NotePencil size={11} />编辑
+                                                                    </button>
+                                                                )}
                                                                 <button onClick={() => !done && shareToChat(f.key, f.post)} disabled={done}
                                                                     className={`ml-auto flex items-center gap-0.5 text-[9px] font-bold ${done ? 'text-emerald-500' : 'text-sky-500 active:scale-95'}`}>
                                                                     <PaperPlaneTilt size={11} weight={done ? 'fill' : 'regular'} />{done ? '已发到聊天' : '发到聊天'}
@@ -381,15 +438,19 @@ const PhoneModal: React.FC<{
                                             const shownThread = folded ? { ...activeDm, messages: activeDm.messages.slice(-FOLD) } : activeDm;
                                             return (
                                                 <div className="space-y-1.5">
-                                                    <button onClick={() => setDmOpenId(null)} className="flex items-center gap-1 text-[11px] font-bold text-white/80 mb-1 active:scale-95 transition-transform">
-                                                        <CaretRight size={12} weight="bold" className="rotate-180" />{otherName}
-                                                    </button>
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <button onClick={() => setDmOpenId(null)} className="flex items-center gap-1 text-[11px] font-bold text-white/80 active:scale-95 transition-transform">
+                                                            <CaretRight size={12} weight="bold" className="rotate-180" />{otherName}
+                                                        </button>
+                                                        {onEditContent && <span className="text-[8px] text-white/35">长按消息可编辑/删除</span>}
+                                                    </div>
                                                     {folded && (
                                                         <button onClick={() => setDmExpanded(true)} className="w-full text-[10px] font-bold py-1.5 rounded-full bg-white/10 text-white/60 active:scale-95 transition-transform">
                                                             展开更早的 {activeDm.messages.length - FOLD} 条
                                                         </button>
                                                     )}
-                                                    <ThreadBubbles thread={shownThread} selfId={ownerId} members={members} npcs={world.npcs} />
+                                                    <ThreadBubbles thread={shownThread} selfId={ownerId} members={members} npcs={world.npcs}
+                                                        onPick={onEditContent ? m => setEditing({ target: { type: 'msg', threadId: activeDm.id, msgId: m.id }, text: m.text, title: '编辑这条私信', canDelete: true }) : undefined} />
                                                 </div>
                                             );
                                         })()
@@ -430,13 +491,14 @@ const PhoneModal: React.FC<{
                                         const shownGroup = folded ? { ...group, messages: group.messages.slice(-FOLD) } : group;
                                         return (
                                             <div className="space-y-1.5">
-                                                <div className="text-center text-[9px] text-white/40 font-bold pb-1">「{group.name}」 · {group.memberIds.length} 人{world.npcs.length > 0 ? ` + ${world.npcs.length} NPC` : ''}</div>
+                                                <div className="text-center text-[9px] text-white/40 font-bold pb-1">「{group.name}」 · {group.memberIds.length} 人{world.npcs.length > 0 ? ` + ${world.npcs.length} NPC` : ''}{onEditContent ? ' · 长按消息可编辑/删除' : ''}</div>
                                                 {folded && (
                                                     <button onClick={() => setGroupExpanded(true)} className="w-full text-[10px] font-bold py-1.5 rounded-full bg-white/10 text-white/60 active:scale-95 transition-transform">
                                                         展开更早的 {group.messages.length - FOLD} 条
                                                     </button>
                                                 )}
-                                                <ThreadBubbles thread={shownGroup} selfId={ownerId} members={members} npcs={world.npcs} showNames />
+                                                <ThreadBubbles thread={shownGroup} selfId={ownerId} members={members} npcs={world.npcs} showNames
+                                                    onPick={onEditContent ? m => setEditing({ target: { type: 'msg', threadId: group.id, msgId: m.id }, text: m.text, title: '编辑这条群消息', canDelete: true }) : undefined} />
                                             </div>
                                         );
                                     })()
@@ -451,7 +513,15 @@ const PhoneModal: React.FC<{
                                             {memos.slice(p * PER, p * PER + PER).map((m, i) => (
                                                 <div key={i} className="rounded-xl bg-amber-50/95 border-l-4 border-amber-300 px-3 py-2 shadow-sm"
                                                     style={{ transform: `rotate(${i % 2 === 0 ? '-0.4' : '0.4'}deg)` }}>
-                                                    <div className="text-[8.5px] text-amber-500 font-bold">{m.storyTime}</div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <div className="text-[8.5px] text-amber-500 font-bold">{m.storyTime}</div>
+                                                        {onEditContent && (
+                                                            <button onClick={() => setEditing({ target: { type: 'memo', round: m.round, charId: ownerId, idx: m.idx }, text: m.text, title: '编辑备忘', canDelete: true })}
+                                                                className="ml-auto flex items-center gap-0.5 text-[8.5px] font-bold text-amber-500 active:scale-95">
+                                                                <NotePencil size={10} />编辑
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                     <p className="text-[11.5px] leading-[1.55] text-amber-950 mt-0.5 whitespace-pre-wrap">{m.text}</p>
                                                 </div>
                                             ))}
@@ -468,6 +538,36 @@ const PhoneModal: React.FC<{
                         </div>
                         {/* home indicator */}
                         <div className="pb-2 pt-1 flex justify-center shrink-0"><div className="w-24 h-1 rounded-full bg-white/30" /></div>
+
+                        {/* 编辑/删除生成内容的底部弹层 */}
+                        {editing && (
+                            <div className="absolute inset-0 z-30 flex items-end bg-black/40 backdrop-blur-[2px]" onClick={() => setEditing(null)}>
+                                <div className="w-full rounded-t-3xl bg-[#f7f3ea] p-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h4 className="text-[13px] font-black text-stone-800">{editing.title}</h4>
+                                        <button onClick={() => setEditing(null)} className="p-1 rounded-full hover:bg-black/5"><X size={15} weight="bold" className="text-stone-400" /></button>
+                                    </div>
+                                    <textarea autoFocus value={editing.text} onChange={e => setEditing(ed => ed ? { ...ed, text: e.target.value } : ed)} rows={4}
+                                        className="w-full px-3 py-2 rounded-xl bg-white border border-stone-200 text-[12.5px] leading-relaxed text-stone-800 focus:outline-none focus:border-amber-400 resize-none" />
+                                    <div className="flex items-center gap-2 mt-3">
+                                        {editing.canDelete && (
+                                            confirmDel ? (
+                                                <button onClick={() => submitEdit(null)} className="flex items-center gap-1 px-3 py-2 rounded-xl bg-rose-500 text-white text-[12px] font-bold active:scale-95 transition-transform">
+                                                    <Trash size={13} weight="bold" />确认删除
+                                                </button>
+                                            ) : (
+                                                <button onClick={() => setConfirmDel(true)} className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white border border-rose-200 text-rose-500 text-[12px] font-bold active:scale-95 transition-transform">
+                                                    <Trash size={13} weight="bold" />删除
+                                                </button>
+                                            )
+                                        )}
+                                        <button onClick={() => setEditing(null)} className="ml-auto px-3 py-2 rounded-xl bg-white border border-stone-200 text-stone-500 text-[12px] font-bold active:scale-95 transition-transform">取消</button>
+                                        <button onClick={() => submitEdit(editing.text.trim())} disabled={!editing.text.trim()}
+                                            className="px-4 py-2 rounded-xl bg-stone-900 text-white text-[12px] font-bold disabled:opacity-40 active:scale-95 transition-transform">保存</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -1141,6 +1241,58 @@ const WorldView: React.FC<{
         onWorldUpdated();
     };
 
+    /** 编辑/删除手机里的生成内容（动态/备忘落 episode；私聊/群聊落 world.threads）。newText=null 表示删除。 */
+    const applyContentEdit = async (target: WHEditTarget, newText: string | null) => {
+        if (target.type === 'post' || target.type === 'memo') {
+            const ep = episodes.find(e => e.round === target.round);
+            const beat = ep?.beats.find(b => b.charId === target.charId);
+            if (!ep || !beat) return;
+            let newBeat: WorldCharBeat;
+            let reactionUpdate: WorldProfile['feedReactions'] | undefined;
+            if (target.type === 'post') {
+                const posts = [...(beat.phone?.posts || [])];
+                if (target.idx < 0 || target.idx >= posts.length) return;
+                if (newText === null) {
+                    posts.splice(target.idx, 1);
+                    // 该动态的点赞/评论按 idx 关联，删一条后把高位的往下挪一格
+                    if (world.feedReactions) {
+                        const fr = { ...world.feedReactions };
+                        delete fr[`${target.round}_${target.charId}_${target.idx}`];
+                        for (let i = target.idx + 1; i <= posts.length; i++) {
+                            const oldK = `${target.round}_${target.charId}_${i}`;
+                            if (fr[oldK]) { fr[`${target.round}_${target.charId}_${i - 1}`] = fr[oldK]; delete fr[oldK]; }
+                        }
+                        reactionUpdate = fr;
+                    }
+                } else {
+                    posts[target.idx] = newText;
+                }
+                newBeat = { ...beat, phone: { ...beat.phone, posts } };
+            } else {
+                const memo = [...(beat.memo || [])];
+                if (target.idx < 0 || target.idx >= memo.length) return;
+                if (newText === null) memo.splice(target.idx, 1);
+                else memo[target.idx] = newText;
+                newBeat = { ...beat, memo };
+            }
+            const updatedEp: WorldEpisode = { ...ep, beats: ep.beats.map(b => b.charId === target.charId ? newBeat : b) };
+            await DB.saveWorldEpisode(updatedEp);
+            if (reactionUpdate) await DB.saveWorld({ ...world, feedReactions: reactionUpdate, updatedAt: Date.now() });
+            await loadEpisodes();
+            if (reactionUpdate) onWorldUpdated();
+        } else {
+            const threads = (world.threads || []).map(tr => {
+                if (tr.id !== target.threadId) return tr;
+                const messages = newText === null
+                    ? tr.messages.filter(m => m.id !== target.msgId)
+                    : tr.messages.map(m => m.id === target.msgId ? { ...m, text: newText } : m);
+                return { ...tr, messages };
+            });
+            await mutateWorld({ threads });
+        }
+        addToast(newText === null ? '已删除' : '已更新', 'success');
+    };
+
     const sendDirective = (charId: string, impulseText: string, text: string) => {
         const d = { id: `wd_${Date.now().toString(36)}`, charId, impulseText, text, createdRound: world.storyClock };
         void mutateWorld({ directives: [...(world.directives || []), d] });
@@ -1639,6 +1791,7 @@ const WorldView: React.FC<{
                     members={members}
                     initialTab={phoneView.tab}
                     onClose={() => setPhoneView(null)}
+                    onEditContent={applyContentEdit}
                 />
             )}
         </div>
