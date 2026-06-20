@@ -36,6 +36,7 @@ function summarizeGroupMsgContent(m: Message): string {
         case 'news_card': return '[新闻卡片]';
         case 'trpg_card': return `[TRPG游戏片段${meta.trpg?.gameTitle ? '：《' + meta.trpg.gameTitle + '》' : ''}]`;
         case 'world_card': return `[家园生活记录${meta.worldName ? '：' + meta.worldName : ''}]`;
+        case 'sim_card': return `[一段回忆${meta.simCard?.theme ? '：' + meta.simCard.theme : ''}]`;
         default: {
             const c = typeof m.content === 'string' ? m.content : '';
             // 兜底：任何 data:/http(s) 链接都不内联，防止异常/未来新增类型漏网
@@ -885,6 +886,12 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
                         ? '（你在共同世界「家园」里的生活记录——那个世界自成一体，里面的关系与事件不必对应现实聊天；聊到时可以当成你最近的生活分享。）'
                         : '（你在共同世界「家园」里的生活记录——和你同世界的伙伴们一起生活时发生的事，聊到时当成自己最近的生活来讲。）';
                     content = `${timeStr}${frame}\n${body}`;
+                }
+                else if ((m.type as string) === 'sim_card') {
+                    // sim_card：用户把一段「人格模拟」演出作为真实回忆送给你。
+                    // 框定为「你真实经历过的一段过往」，让你可以在聊天中自然地拥有它带来的心情与记忆。
+                    const body = typeof m.content === 'string' ? m.content : '';
+                    content = `${timeStr}（这是你真实经历过的一段过往，由用户珍藏并交还给你——当成自己的亲身记忆来对待，它带来的情绪与体会都是真的，聊到时可自然提及，但不必逐字复述。）\n${body}`;
                 }
                 else if ((m.type as string) === 'html_card') {
                     // html_card：上下文里只塞纯文字摘要，剥离掉所有 HTML，省 token、不污染 LLM 思考

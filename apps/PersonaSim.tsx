@@ -10,6 +10,7 @@ import {
     CaretLeft, Play, Pause, FastForward, Lock, MagnifyingGlass, MusicNotes,
     BellRinging, ImageSquare, NotePencil, Globe, CloudSun, ArrowClockwise,
     HourglassMedium, Sparkle, ClockCounterClockwise, X, CaretRight, ArrowRight,
+    PaperPlaneTilt, Check,
 } from '@phosphor-icons/react';
 
 // ============================================================
@@ -151,6 +152,7 @@ const PersonaSim: React.FC<Props> = ({ targetChar, onExit, openLifeLog, sim, onS
     const [script, setScript] = useState<SimScript | null>(null);
     const [idx, setIdx] = useState(0);
     const [autoplay, setAutoplay] = useState(false);
+    const [memorySent, setMemorySent] = useState(false);
     const savedRef = useRef(false);
     const ffTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -181,7 +183,7 @@ const PersonaSim: React.FC<Props> = ({ targetChar, onExit, openLifeLog, sim, onS
     useEffect(() => {
         if (phase === 'idle' && sim.status === 'ready') {
             setMode(sim.mode); setTheme(sim.theme);
-            setScript(sim.script); setIdx(0); savedRef.current = false; setPhase('play');
+            setScript(sim.script); setIdx(0); savedRef.current = false; setMemorySent(false); setPhase('play');
             onConsumed();
         }
     }, [sim, phase, onConsumed]);
@@ -277,6 +279,25 @@ const PersonaSim: React.FC<Props> = ({ targetChar, onExit, openLifeLog, sim, onS
         // 重看同一场演出不再重复写入「生活记录」(savedRef 保持已保存)
         setIdx(0);
         setPhase('play');
+    };
+
+    // 把这场演出作为「真实回忆」发送到聊天 —— 角色会把它当成亲身经历（进入上下文）
+    const sendAsMemory = async () => {
+        if (!script || memorySent) return;
+        const title = script.title || theme;
+        const summary = script.summary || '';
+        const content = `${title}｜${theme}${summary ? '\n' + summary : ''}`;
+        try {
+            await DB.saveMessage({
+                charId: targetChar.id, role: 'assistant', type: 'sim_card', content,
+                metadata: { simCard: { mode, theme, title, summary, ending: script.ending } },
+            } as any);
+            setMemorySent(true);
+            addToast('已作为回忆发送给 TA', 'success');
+        } catch (e) {
+            console.error(e);
+            addToast('发送失败，请重试', 'error');
+        }
     };
 
     const wallpaper = targetChar.dateBackground;
@@ -412,7 +433,21 @@ const PersonaSim: React.FC<Props> = ({ targetChar, onExit, openLifeLog, sim, onS
                         </div>
                     )}
 
-                    <div className="flex gap-3 mt-9">
+                    {/* 把这场演出作为真实回忆送给角色 */}
+                    <button onClick={sendAsMemory} disabled={memorySent}
+                        className="mt-8 w-full max-w-[300px] py-3 rounded-2xl text-[13px] font-semibold flex items-center justify-center gap-2 active:scale-[0.99] transition disabled:opacity-60"
+                        style={memorySent
+                            ? { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.1)' }
+                            : { background: ACCENT, color: '#1a1530' }}>
+                        {memorySent
+                            ? <><Check size={15} weight="bold" /> 已成为 TA 的回忆</>
+                            : <><PaperPlaneTilt size={15} weight="fill" /> 作为回忆发送给 TA</>}
+                    </button>
+                    <p className="text-[10px] text-white/30 mt-2 max-w-[280px] leading-relaxed">
+                        会以一张卡片发到聊天里，TA 将把这段经历当成真实记忆。
+                    </p>
+
+                    <div className="flex gap-3 mt-6">
                         <button onClick={restart} className="px-5 py-2.5 rounded-xl text-[12px] text-white/70 bg-white/[0.06] border border-white/[0.08] flex items-center gap-1.5 active:scale-95 transition">
                             <ArrowClockwise size={14} /> 再看一次
                         </button>
@@ -859,8 +894,23 @@ const TopBar: React.FC<{ onBack: () => void; right?: React.ReactNode; title?: st
 //  LIFE LOG (生活记录) — sub-app
 // ============================================================
 export const LifeLog: React.FC<{ targetChar: CharacterProfile; onBack: () => void }> = ({ targetChar, onBack }) => {
+    const { addToast } = useOS();
     const logs = targetChar.phoneState?.simLogs || [];
+    const [sent, setSent] = useState<Record<string, boolean>>({});
     const fmt = (t: number) => new Date(t).toLocaleString('zh-CN', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    const sendLog = async (log: PhoneSimLog) => {
+        if (sent[log.id]) return;
+        try {
+            await DB.saveMessage({
+                charId: targetChar.id, role: 'assistant', type: 'sim_card',
+                content: `${log.title}｜${log.theme}${log.summary ? '\n' + log.summary : ''}`,
+                metadata: { simCard: { mode: log.mode, theme: log.theme, title: log.title, summary: log.summary, ending: log.ending } },
+            } as any);
+            setSent(s => ({ ...s, [log.id]: true }));
+            addToast('已作为回忆发送给 TA', 'success');
+        } catch (e) { console.error(e); addToast('发送失败，请重试', 'error'); }
+    };
     return (
         <Shell wallpaper={targetChar.dateBackground}>
             <TopBar onBack={onBack} title="生活记录" />
@@ -885,11 +935,18 @@ export const LifeLog: React.FC<{ targetChar: CharacterProfile; onBack: () => voi
                         <div className="text-[15px] font-light text-white mb-1.5" style={{ fontFamily: "'Shippori Mincho','Noto Sans SC',serif" }}>{log.title}</div>
                         {log.ending && <div className="text-[10px] text-white/40 mb-1.5">结局 · {log.ending}</div>}
                         <p className="text-[12.5px] text-white/60 leading-relaxed" style={{ fontFamily: "'Shippori Mincho','Noto Sans SC',serif" }}>{log.summary}</p>
-                        {log.buff?.label && (
-                            <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px]" style={{ borderColor: `${log.buff.color || ACCENT}55`, color: 'rgba(255,255,255,0.8)', background: `${log.buff.color || ACCENT}14` }}>
-                                <span>{log.buff.emoji || '✨'}</span>{log.buff.label}
-                            </div>
-                        )}
+                        <div className="flex items-center justify-between mt-3 gap-2">
+                            {log.buff?.label ? (
+                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px]" style={{ borderColor: `${log.buff.color || ACCENT}55`, color: 'rgba(255,255,255,0.8)', background: `${log.buff.color || ACCENT}14` }}>
+                                    <span>{log.buff.emoji || '✨'}</span>{log.buff.label}
+                                </div>
+                            ) : <span />}
+                            <button onClick={() => sendLog(log)} disabled={!!sent[log.id]}
+                                className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-semibold active:scale-95 transition disabled:opacity-60"
+                                style={sent[log.id] ? { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' } : { background: ACCENT, color: '#1a1530' }}>
+                                {sent[log.id] ? <><Check size={12} weight="bold" /> 已发送</> : <><PaperPlaneTilt size={12} weight="fill" /> 发送给 TA</>}
+                            </button>
+                        </div>
                     </div>
                 ))}
             </div>
