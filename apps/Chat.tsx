@@ -846,6 +846,7 @@ const Chat: React.FC = () => {
                 .replace(/【[^】]*】/g, ' ')
                 .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2B00}-\u{2BFF}]/gu, ' ')
                 .replace(/[A-Za-z0-9_\-]{8,}/g, ' ')
+                .replace(/\d+/g, ' ')
                 .replace(/[\s,，。.!！?？、:：;；#·\-—…"'""''（）()]/g, '')
                 .trim();
             const xhsUrlMatch = text.match(/xiaohongshu\.com\/(?:discovery\/item|explore)\/([a-f0-9]{24})/);
