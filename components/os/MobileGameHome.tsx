@@ -195,7 +195,7 @@ const MobileGameHome: React.FC = () => {
         <div className="h-full w-full relative z-10 overflow-hidden select-none" style={{ color: PAL.ink, fontFamily: FONT_CN }}>
             {/* 极淡叠层：顶部提亮 + 底部微沉，让壁纸透出 */}
             <div className="absolute inset-0 pointer-events-none"
-                style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 20%, rgba(255,255,255,0) 80%, rgba(180,150,220,0.16) 100%)' }} />
+                style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 22%, rgba(255,255,255,0) 86%, rgba(206,188,232,0.1) 100%)' }} />
 
             <div className="relative h-full overflow-y-auto no-scrollbar px-5"
                 style={{ paddingTop: 'calc(var(--safe-top, 0px) + 0.75rem)', paddingBottom: '7.5rem' }}>
