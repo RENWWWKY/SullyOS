@@ -329,10 +329,10 @@ const MobileGameHome: React.FC = () => {
                         </div>
                     ) : (
                         <img src={chibi.img} alt="" loading="lazy"
-                            className="absolute right-0 bottom-0 object-contain pointer-events-none"
+                            className="absolute right-0 bottom-0 object-contain object-bottom pointer-events-none"
                             style={{
-                                height: `${7.5 * (chibi.scale || 1)}rem`,
-                                transform: `scaleX(${chibi.flip ? -1 : 1}) translateY(${chibi.offsetY || 0}px)`,
+                                height: '64%', // 相对时钟卡高度，避免吃彼方里按 VR 调的绝对 scale 而巨大
+                                transform: `scaleX(${chibi.flip ? -1 : 1})`,
                                 filter: 'drop-shadow(0 5px 10px rgba(120,90,170,0.45))',
                             }} />
                     ))}
