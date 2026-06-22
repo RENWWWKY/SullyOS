@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripEmotionTags, cleanTextForTts, parseVoiceOutput, insertSpeechBreaks } from './minimaxTts';
+import { stripEmotionTags, cleanTextForTts, parseVoiceOutput, insertSpeechBreaks, cleanVoiceMarkupForDisplay } from './minimaxTts';
 
 describe('stripEmotionTags', () => {
   it('removes [emotion] / 【emotion】 tags anywhere, leaves prose', () => {
@@ -39,6 +39,24 @@ describe('parseVoiceOutput', () => {
     const r = parseVoiceOutput('就是一句话');
     expect(r.hasVoiceTag).toBe(false);
     expect(r.display).toBe('就是一句话');
+  });
+});
+
+describe('cleanVoiceMarkupForDisplay', () => {
+  it('strips <#x#> pause markers and whitelisted action tags for display', () => {
+    const out = cleanVoiceMarkupForDisplay('(sighs) 唉，<#0.4#> 真是的。<#0.5#> (chuckle) 算了。');
+    expect(out).not.toContain('<#');
+    expect(out).not.toContain('(sighs)');
+    expect(out).not.toContain('(chuckle)');
+    expect(out).toContain('唉');
+    expect(out).toContain('算了');
+  });
+  it('leaves non-whitelisted parentheses untouched', () => {
+    expect(cleanVoiceMarkupForDisplay('备注(2026) 还在')).toBe('备注(2026) 还在');
+  });
+  it('handles empty / undefined input', () => {
+    expect(cleanVoiceMarkupForDisplay('')).toBe('');
+    expect(cleanVoiceMarkupForDisplay(undefined)).toBe('');
   });
 });
 

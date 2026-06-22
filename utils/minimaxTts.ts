@@ -64,6 +64,26 @@ const EMOTION_TAG_RE = /[\[【]\s*(?:happy|sad|angry|fearful|disgusted|surprised
 /** 移除文本里所有 [emotion] / 【emotion】 标记（任意位置），避免被朗读或显示。 */
 export const stripEmotionTags = (text: string): string => (text || '').replace(EMOTION_TAG_RE, '');
 
+/**
+ * 把「只给 TTS 用」的演出标记从要显示给用户的文本里清掉。
+ * <#秒#> 停顿标记和 (sighs)/(chuckle) 这类动作词是写给语音合成的，
+ * 不应该原样出现在聊天气泡 / 转文字面板里（否则用户看到一堆 <#0.4#>）。
+ * 只删白名单内的动作词；普通括号内容（比如正常的西文括注）保持不动。
+ */
+export const cleanVoiceMarkupForDisplay = (text?: string | null): string => {
+  if (!text) return '';
+  return text
+    .replace(/<#\s*[\d.]+\s*#>/g, '')                 // 停顿标记 <#0.4#>
+    .replace(/\(([^)]{1,40})\)/g, (m, inner: string) =>
+      VALID_INTERJECTION_TAGS.has(inner.trim().toLowerCase()) ? '' : m) // 动作词，仅删白名单
+    .replace(/[ \t]{2,}/g, ' ')                        // 合并多余空格
+    .replace(/[ \t]+([，。！？、；：,.!?…])/g, '$1')    // 标点前残留空格
+    .replace(/([，、；：,])\s*\1+/g, '$1')               // 删标记后留下的连续重复标点
+    .replace(/[ \t]*\n[ \t]*/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
 // 设计：不再做「中文舞台指示 → 语气标签」的猜测式映射（体验差、不可预测、有损）。
 // 改为「教 LLM 直接写官方 sound tag」+「客户端只做白名单消毒」。
 // 因此这里只保留一个合法标签白名单（上方 VALID_INTERJECTION_TAGS），不保留任何中→英映射表。

@@ -4,6 +4,7 @@
 import React, { useRef, useState } from 'react';
 import { Message, ChatTheme } from '../../types';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
+import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
 import McdCard from './McdCard';
 import LuckinCard from './LuckinCard';
 import LuckinCheckoutCard from './LuckinCheckoutCard';
@@ -2483,6 +2484,12 @@ const MessageItem = React.memo(({
         .replace(/``+/g, '')                          // empty/stray backtick pairs
         .replace(/(^|\s)`(\s|$)/gm, '$1$2')         // lone backticks at boundaries
         .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')    // markdown links → just text
+        // TTS-only markup (<#秒#> 停顿、(sighs) 动作词) must never show in the bubble
+        .replace(/<#\s*[\d.]+\s*#>/g, '')
+        .replace(/\(([^)]{1,40})\)/g, (m, inner: string) =>
+            VALID_INTERJECTION_TAGS.has(inner.trim().toLowerCase()) ? '' : m)
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/[ \t]+([，。！？、；：,.!?…])/g, '$1')
         .replace(/\n{3,}/g, '\n\n')                  // collapse excess newlines
         .trim();
 
@@ -2506,7 +2513,7 @@ const MessageItem = React.memo(({
     // Spoken text inside the <语音> tag — lets the placeholder bar offer a 转文字 toggle
     // even when no audio was synthesized (e.g. character has no MiniMax voice configured),
     // so fake voice messages stay readable just like real ones.
-    const voiceTagText = hasVoiceTag ? (m.content.match(/<[语語]音[^>]*>([\s\S]*?)<\/[语語]音>/)?.[1]?.trim() || '') : '';
+    const voiceTagText = hasVoiceTag ? cleanVoiceMarkupForDisplay(m.content.match(/<[语語]音[^>]*>([\s\S]*?)<\/[语語]音>/)?.[1]?.trim() || '') : '';
     const hasVoiceContent = voiceData?.url || voiceLoading || hasVoiceTag;
     // Don't render empty bubbles (e.g. messages that were just "---"), unless voice data exists or pending
     if (!displayContent && !hasVoiceContent) return null;
@@ -2672,28 +2679,28 @@ const MessageItem = React.memo(({
                                         {/* When foreign lang voice: show spoken text first, then Chinese translation */}
                                         {voiceData.lang && voiceData.spokenText ? (
                                             <>
-                                                <div className="whitespace-pre-wrap">{voiceData.spokenText}</div>
-                                                {(voiceData.originalText || displayContent) && (
+                                                <div className="whitespace-pre-wrap">{cleanVoiceMarkupForDisplay(voiceData.spokenText)}</div>
+                                                {(cleanVoiceMarkupForDisplay(voiceData.originalText) || displayContent) && (
                                                     <div
                                                         style={{ opacity: 0.65 }}
                                                         className="whitespace-pre-wrap text-[10px] mt-1 pt-1 border-t border-current/10"
                                                     >
-                                                        {voiceData.originalText || displayContent}
+                                                        {cleanVoiceMarkupForDisplay(voiceData.originalText) || displayContent}
                                                     </div>
                                                 )}
                                             </>
                                         ) : (
                                             <>
                                                 {/* Default: show original text */}
-                                                {(voiceData.originalText || displayContent) && (
-                                                    <div className="whitespace-pre-wrap">{voiceData.originalText || displayContent}</div>
+                                                {(cleanVoiceMarkupForDisplay(voiceData.originalText) || displayContent) && (
+                                                    <div className="whitespace-pre-wrap">{cleanVoiceMarkupForDisplay(voiceData.originalText) || displayContent}</div>
                                                 )}
-                                                {voiceData.spokenText && (
+                                                {cleanVoiceMarkupForDisplay(voiceData.spokenText) && (
                                                     <div
-                                                        style={{ opacity: (voiceData.originalText || displayContent) ? 0.55 : 1 }}
-                                                        className={`whitespace-pre-wrap ${(voiceData.originalText || displayContent) ? 'text-[10px] mt-1 pt-1 border-t border-current/10' : ''}`}
+                                                        style={{ opacity: (cleanVoiceMarkupForDisplay(voiceData.originalText) || displayContent) ? 0.55 : 1 }}
+                                                        className={`whitespace-pre-wrap ${(cleanVoiceMarkupForDisplay(voiceData.originalText) || displayContent) ? 'text-[10px] mt-1 pt-1 border-t border-current/10' : ''}`}
                                                     >
-                                                        {voiceData.spokenText}
+                                                        {cleanVoiceMarkupForDisplay(voiceData.spokenText)}
                                                     </div>
                                                 )}
                                             </>
