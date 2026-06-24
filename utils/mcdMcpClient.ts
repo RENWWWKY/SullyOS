@@ -11,7 +11,10 @@
  *   body: 标准 JSON-RPC 2.0 报文
  */
 
-const MCP_PROXY_URL = 'https://sullymeow.ccwu.cc/mcp/mcd';
+import { getProxyWorkerUrl } from './proxyWorker';
+
+// 走中心配置的主代理 worker（用户可在设置里换成自部署实例）
+const mcpProxyUrl = (): string => `${getProxyWorkerUrl()}/mcp/mcd`;
 const MCP_TOKEN_KEY = 'aetheros.mcd.mcpToken';
 const MCP_ENABLED_KEY = 'aetheros.mcd.mcpEnabled';
 
@@ -154,7 +157,7 @@ const post = async (
     };
     if (sessionId) headers['Mcp-Session-Id'] = sessionId;
 
-    const resp = await fetch(MCP_PROXY_URL, {
+    const resp = await fetch(mcpProxyUrl(), {
         method: 'POST',
         headers,
         body: JSON.stringify(body),

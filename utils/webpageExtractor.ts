@@ -10,11 +10,12 @@
 // 代理不可用时兜底尝试前端直连（多数会失败，失败就抛错让调用方提示用户）。
 
 import { htmlToText } from './htmlPrompt';
+import { getProxyWorkerUrl } from './proxyWorker';
 
 // sfworker：项目自带的通用代理 Worker（小红书签名 / 网易云 weapi / Brave 搜索 / WebDAV /
-// 网页抓取都走它，代码见 worker/index.js）。二改请换成你自己的 Worker 地址 ——
-// 见 README「后端有几处接了我的 sfworker」。
-const SFWORKER_URL = 'https://sullymeow.ccwu.cc';
+// 网页抓取都走它，代码见 worker/index.js）。地址走中心配置 utils/proxyWorker.ts，
+// 用户可在「设置 → 网络代理 (Worker)」里换成自部署实例。
+const sfworkerUrl = (): string => getProxyWorkerUrl();
 
 /** 抓取并解析后的网页结构。卡片 metadata 存这一份。 */
 export interface ExtractedWebpage {
@@ -65,7 +66,7 @@ export function isXhsUrl(url: string): boolean {
  * 小红书短链不含 note id / xsec_token，展开后才拿得到。
  */
 export async function expandShortUrl(url: string): Promise<string> {
-  const res = await fetch(`${SFWORKER_URL}/expand-url`, {
+  const res = await fetch(`${sfworkerUrl()}/expand-url`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
@@ -91,7 +92,7 @@ type WorkerFetchResult =
  * 失败抛错（由 extractWebpageContent 兜底到直连）。
  */
 async function fetchViaWorker(url: string): Promise<WorkerFetchResult> {
-  const res = await fetch(`${SFWORKER_URL}/fetch-webpage`, {
+  const res = await fetch(`${sfworkerUrl()}/fetch-webpage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),

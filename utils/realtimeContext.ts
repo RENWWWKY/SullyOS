@@ -5,6 +5,7 @@
 
 import { safeResponseJson } from './safeApi';
 import { DB } from './db';
+import { getProxyWorkerUrl } from './proxyWorker';
 
 export interface WeatherData {
     temp: number;
@@ -301,7 +302,7 @@ export const RealtimeContextManager = {
     fetchBraveNews: async (apiKey: string): Promise<NewsItem[]> => {
         try {
             // 使用自建的 Cloudflare Worker 代理
-            const workerUrl = 'https://sullymeow.ccwu.cc/news?q=热点新闻&count=5&country=cn';
+            const workerUrl = `${getProxyWorkerUrl()}/news?q=热点新闻&count=5&country=cn`;
 
             const response = await fetch(workerUrl, {
                 headers: {
@@ -622,7 +623,7 @@ export const RealtimeContextManager = {
 
         try {
             // 使用自建的 Cloudflare Worker 代理
-            const workerUrl = `https://sullymeow.ccwu.cc/search?q=${encodeURIComponent(query)}&count=5`;
+            const workerUrl = `${getProxyWorkerUrl()}/search?q=${encodeURIComponent(query)}&count=5`;
 
             const response = await fetch(workerUrl, {
                 method: 'GET',
@@ -696,8 +697,8 @@ export interface DiaryPreview {
 
 export const NotionManager = {
 
-    // Worker 代理地址
-    WORKER_URL: 'https://sullymeow.ccwu.cc',
+    // Worker 代理地址（中心配置，用户可在设置里换成自部署实例）
+    get WORKER_URL() { return getProxyWorkerUrl(); },
 
     /**
      * 测试 Notion 连接（通过 Worker 代理）
@@ -1734,7 +1735,8 @@ function formatFeishuDiaryContent(content: string, mood?: string, characterName?
 
 export const FeishuManager = {
 
-    WORKER_URL: 'https://sullymeow.ccwu.cc',
+    // Worker 代理地址（中心配置，用户可在设置里换成自部署实例）
+    get WORKER_URL() { return getProxyWorkerUrl(); },
 
     /**
      * 获取飞书 tenant_access_token（通过 Worker 代理，带缓存）

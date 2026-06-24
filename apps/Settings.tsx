@@ -11,6 +11,7 @@ import { NotionManager, FeishuManager } from '../utils/realtimeContext';
 import { XhsMcpClient } from '../utils/xhsMcpClient';
 import { getMcdToken, setMcdToken as saveMcdToken, isMcdEnabled, setMcdEnabled as saveMcdEnabled, testMcdConnection, resetMcdSession } from '../utils/mcdMcpClient';
 import { getLuckinToken, setLuckinToken as saveLuckinToken, isLuckinEnabled, setLuckinEnabled as saveLuckinEnabled, testLuckinConnection, resetLuckinSession } from '../utils/luckinMcpClient';
+import { getProxyWorkerUrl, setProxyWorkerUrl, DEFAULT_PROXY_WORKER } from '../utils/proxyWorker';
 import { Sun, Newspaper, NotePencil, Notebook, Book, ForkKnife, Coffee } from '@phosphor-icons/react';
 import { loadPushConfig, savePushConfig, registerScheduleOnWorker, startHeartbeat, stopHeartbeat, isPushConfigAvailable, ensureSubscribed, sendTestPush, getPushDiagnostics, resetSubscription, deepResetSubscription, type PushDiagnostics } from '../utils/proactivePushConfig';
 import { ProactiveChat } from '../utils/proactiveChat';
@@ -116,6 +117,11 @@ const Settings: React.FC = () => {
   const [ghShowAdvanced, setGhShowAdvanced] = useState(false);
   const [ghTesting, setGhTesting] = useState(false);
   const [ghTestResult, setGhTestResult] = useState<string>('');
+
+  // 主代理 Worker 地址（联网搜索 / 备份代理 / Notion / 飞书 / MCD·瑞幸 MCP / 网页抓取 / 出图都走它）。
+  // 入口刻意低调：默认折叠，普通用户不需要碰，开箱即用。
+  const [proxyWorkerInput, setProxyWorkerInput] = useState(getProxyWorkerUrl());
+  const [showProxyConfig, setShowProxyConfig] = useState(false);
 
   // 实时感知配置的本地状态
   const [rtWeatherEnabled, setRtWeatherEnabled] = useState(realtimeConfig.weatherEnabled);
@@ -548,6 +554,25 @@ const Settings: React.FC = () => {
       });
       addToast('云端备份配置已保存', 'success');
       setShowCloudModal(false);
+  };
+
+  // 保存 / 恢复主代理 Worker 地址
+  const handleSaveProxyWorker = () => {
+      const raw = proxyWorkerInput.trim();
+      if (raw && !/^https?:\/\//i.test(raw)) {
+          addToast('地址必须以 http:// 或 https:// 开头', 'error');
+          return;
+      }
+      setProxyWorkerUrl(raw);                 // 传空 / 默认地址 → 自动回落默认
+      const applied = getProxyWorkerUrl();
+      setProxyWorkerInput(applied);
+      addToast(applied === DEFAULT_PROXY_WORKER ? '已恢复为默认 Worker' : 'Worker 地址已保存', 'success');
+  };
+
+  const handleResetProxyWorker = () => {
+      setProxyWorkerUrl('');
+      setProxyWorkerInput(getProxyWorkerUrl());
+      addToast('已恢复为默认 Worker', 'info');
   };
 
   const handleCloudBackup = async (mode: 'text_only' | 'full') => {
@@ -1640,6 +1665,55 @@ const Settings: React.FC = () => {
                 与上方 Push 加速器不同：前端发 prompt 到你自部署的 Worker，Worker 调你自己的 LLM 生成回复后分句逐条 Web Push。零数据库、零 cron。
             </p>
         </section>
+
+        {/* 自定义网络代理 — 刻意低调的高级入口。默认折叠，不主动指引基本发现不了。
+            普通用户无需配置：默认走作者部署的公共 Worker，所有功能开箱即用。 */}
+        {!showProxyConfig ? (
+            <button
+                onClick={() => setShowProxyConfig(true)}
+                className="w-full text-center text-[10px] text-slate-300 hover:text-slate-400 py-1 transition-colors"
+            >
+                · 自定义网络代理 ·
+            </button>
+        ) : (
+            <section className="bg-white/60 rounded-2xl p-4 border border-slate-100">
+                <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-xs font-semibold text-slate-500">自定义网络代理 (Worker)</h2>
+                    <button onClick={() => { setShowProxyConfig(false); setProxyWorkerInput(getProxyWorkerUrl()); }} className="text-[10px] text-slate-400">收起</button>
+                </div>
+
+                <div className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2 mb-3 leading-relaxed">
+                    ⚠️ <b>除非你清楚自己在做什么，否则不用动这里。</b>默认配置开箱即用，
+                    所有功能（联网搜索 / 备份代理 / Notion / 飞书 / 点单 / 网页抓取 / 出图）都正常。
+                    只有在你自己部署了 <b>worker/index.js</b>、想换成自己的实例时才需要填。
+                </div>
+
+                <input
+                    type="text"
+                    value={proxyWorkerInput}
+                    onChange={(e) => setProxyWorkerInput(e.target.value)}
+                    placeholder={DEFAULT_PROXY_WORKER}
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200 mb-2"
+                />
+
+                <div className="grid grid-cols-2 gap-2">
+                    <button onClick={handleResetProxyWorker} className="py-2 bg-slate-100 rounded-xl text-[11px] font-bold text-slate-500 active:scale-95 transition-transform">
+                        恢复默认
+                    </button>
+                    <button onClick={handleSaveProxyWorker} className="py-2 bg-slate-700 rounded-xl text-[11px] font-bold text-white active:scale-95 transition-transform">
+                        保存
+                    </button>
+                </div>
+
+                <p className="text-[10px] text-slate-400 px-1 mt-2 leading-relaxed">
+                    只填到域名（如 <b>{DEFAULT_PROXY_WORKER}</b>），不要带 /search、/webdav 等路径。
+                    音乐和小红书 Lite 有各自独立的地址，不受这里影响。
+                </p>
+            </section>
+        )}
 
         <VersionInfo />
       </div>

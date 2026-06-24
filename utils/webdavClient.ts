@@ -14,8 +14,7 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
 import { CloudBackupConfig, CloudBackupFile } from '../types';
-
-const WORKER_URL = 'https://sullymeow.ccwu.cc';
+import { getProxyWorkerUrl } from './proxyWorker';
 
 // 经 CF Worker 代理上传（web 路径）的请求体上限。Cloudflare Worker 免费版单次请求体约 100MB，
 // 超了会被 Worker/平台直接拒（返回 413 之类），且大请求体上行还可能撞 ~42s 上行超时。所以在发起
@@ -40,7 +39,7 @@ const buildFullUrl = (webdavUrl: string, path: string): string =>
     webdavUrl.replace(/\/+$/, '') + '/' + path.replace(/^\/+/, '');
 
 const buildProxyUrl = (fullUrl: string): string =>
-    `${WORKER_URL}/webdav?url=${encodeURIComponent(fullUrl)}`;
+    `${getProxyWorkerUrl()}/webdav?url=${encodeURIComponent(fullUrl)}`;
 
 const buildAuthHeader = (config: CloudBackupConfig): string =>
     `Basic ${btoa(`${config.username}:${config.password}`)}`;
