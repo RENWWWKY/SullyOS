@@ -686,7 +686,7 @@ ${logText.substring(0, 10000)}
             // 1. 共享场景块（用户档案 + 共有世界书 + 共有 worldview）
             //    每个角色都"看见"的舞台只描述一次，避免按成员数 N 倍复制。
             //    每个角色的人设/印象/记忆仍保持完整，不做任何压缩。
-            const sharedScene = ContextBuilder.buildGroupSharedScene(groupMembers, userProfile);
+            const sharedScene = ContextBuilder.buildGroupSharedScene(groupMembers, userProfile, currentMsgs);
 
             let context = `【系统：群聊模拟器配置】
 当前群名: "${activeGroup.name}"
@@ -707,7 +707,7 @@ ${sharedScene.text}`;
                     skipWorldview: sharedScene.worldviewIsShared,
                     skipWorldbookIds: sharedScene.sharedWorldbookIds,
                     headerOverride: `[Group Member Profile: ${member.name}]`,
-                });
+                }, { worldbookMessages: currentMsgs });
                 // Get private gap string
                 const privateGapInfo = await getPrivateTimeGap(member.id);
 

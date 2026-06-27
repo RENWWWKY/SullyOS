@@ -165,7 +165,14 @@ export const ChatPrompts = {
 
         // 记忆宫殿检索结果现在从 char.memoryPalaceInjection 读取，由 buildCoreContext 统一注入
         const coreT0 = performance.now();
-        let baseSystemPrompt = ContextBuilder.buildCoreContext(char, userProfile, true);
+        let baseSystemPrompt = ContextBuilder.buildCoreContext(
+            char,
+            userProfile,
+            true,
+            undefined,
+            undefined,
+            { worldbookMessages: currentMsgs },
+        );
         timings.buildCoreContext = Math.round(performance.now() - coreT0);
 
         // 情绪底色（buffInjection）已移入 ContextBuilder.buildCoreContext()，所有 App 统一注入
