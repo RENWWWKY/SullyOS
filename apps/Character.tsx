@@ -20,6 +20,7 @@ import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
 import { normalizeUserImpression } from '../utils/impression';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import { COMMON_TIMEZONES } from '../utils/timezone';
+import { toMountedWorldbook } from '../utils/worldbook';
 
 const CharacterCard: React.FC<{
     char: CharacterProfile;
@@ -242,12 +243,7 @@ const Character: React.FC = () => {
       }
 
       // CACHE THE CONTENT, include category
-      const newBookEntry = { 
-          id: book.id, 
-          title: book.title, 
-          content: book.content,
-          category: book.category 
-      };
+      const newBookEntry = toMountedWorldbook(book);
       handleChange('mountedWorldbooks', [...currentBooks, newBookEntry]);
       setShowWorldbookModal(false);
       addToast(`已挂载: ${book.title}`, 'success');
@@ -265,12 +261,7 @@ const Character: React.FC = () => {
 
       for (const book of booksToMount) {
           if (!currentBooks.some(b => b.id === book.id)) {
-              newEntries.push({
-                  id: book.id,
-                  title: book.title,
-                  content: book.content,
-                  category: book.category
-              });
+              newEntries.push(toMountedWorldbook(book));
               addedCount++;
           }
       }
@@ -920,6 +911,7 @@ ${isInitialGeneration ? `
                   const category = wb.category && wb.category.trim() ? wb.category : fallbackCategory;
                   wb.category = category;
                   await addWorldbook({
+                      ...wb,
                       id: wb.id,
                       title: wb.title || '未命名设定',
                       content: wb.content || '',

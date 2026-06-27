@@ -23,6 +23,7 @@ import { buildLuckinMiniAppContextBlock, buildLuckinChatSystemBlock } from './lu
 import type { LuckinMiniAppSnapshot, LuckinChatState } from './luckinToolBridge';
 import type { MusicCfg, Song, LyricLine, MusicPlaybackSnapshot } from '../context/MusicContext';
 import { isPromptBuildSkipped } from './devDebug';
+import { injectWorldbookDepthEntries, resolveWorldbookEntries } from './worldbook';
 
 export interface UserListeningContext {
     songName: string;
@@ -266,6 +267,16 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
 
     // ── 8. 剥离历史里旧的双语标签 ─────────────────────────
     const cleanedApiMessages = cleanApiMessages(apiMessages);
+    const resolvedWorldbookEntries = resolveWorldbookEntries(
+        char.mountedWorldbooks || [],
+        cleanedApiMessages,
+        char.name,
+        userProfile.name,
+    );
+    const messagesWithWorldbookDepth = injectWorldbookDepthEntries(
+        cleanedApiMessages,
+        resolvedWorldbookEntries.filter(entry => entry.position === 4),
+    );
 
     // ── 9. 麦当劳小程序上下文（在 cleanedApiMessages 之后追加到 systemPrompt） ──
     const mcdActive = !!mcdMiniSnap?.open;
@@ -297,7 +308,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // ── 10. 组装 fullMessages + 末尾双语 reminder ─────────
     const fullMessages: Array<{ role: string; content: any }> = [
         { role: 'system', content: systemPrompt },
-        ...cleanedApiMessages,
+        ...messagesWithWorldbookDepth,
     ];
     if (bilingualActive) {
         fullMessages.push({
@@ -308,7 +319,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
 
     return {
         systemPrompt,
-        cleanedApiMessages,
+        cleanedApiMessages: messagesWithWorldbookDepth,
         fullMessages,
         flags: { bilingualActive, mcdActive, luckinActive, luckinChatActive, htmlActive, thinkingActive, promptBuildSkipped: false },
     };

@@ -831,7 +831,40 @@ export interface DreamLog {
     script?: DreamScript;   // 完整快照 → 可原样重看
 }
 
-export interface Worldbook {
+export type WorldbookPosition = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export type WorldbookDepthRole = 0 | 1 | 2;
+export type WorldbookSelectiveLogic = 0 | 1 | 2 | 3;
+
+export interface WorldbookEntryConfig {
+    /** Primary activation keywords. Empty for constant entries. */
+    key?: string[];
+    /** Optional secondary activation keywords. */
+    keysecondary?: string[];
+    /** Always active when true; legacy SullyOS entries default to true. */
+    constant?: boolean;
+    selective?: boolean;
+    selectiveLogic?: WorldbookSelectiveLogic;
+    order?: number;
+    position?: WorldbookPosition;
+    disable?: boolean;
+    probability?: number;
+    useProbability?: boolean;
+    depth?: number;
+    role?: WorldbookDepthRole | null;
+    scanDepth?: number | null;
+    caseSensitive?: boolean | null;
+    matchWholeWords?: boolean | null;
+    sourceUid?: number;
+}
+
+export interface MountedWorldbook extends WorldbookEntryConfig {
+    id: string;
+    title: string;
+    content: string;
+    category?: string;
+}
+
+export interface Worldbook extends WorldbookEntryConfig {
     id: string;
     title: string;
     content: string; 
@@ -1906,7 +1939,7 @@ export interface CharacterProfile {
   writerPersona?: string;
   writerPersonaGeneratedAt?: number;
 
-  mountedWorldbooks?: { id: string; title: string; content: string; category?: string }[];
+  mountedWorldbooks?: MountedWorldbook[];
 
   impression?: UserImpression;
 

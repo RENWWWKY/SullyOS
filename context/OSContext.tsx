@@ -27,6 +27,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { Capacitor } from '@capacitor/core';
 import { formatBytes } from '../utils/format';
 import { isEmotionEvalSkipped } from '../utils/devDebug';
+import { toMountedWorldbook } from '../utils/worldbook';
 // 备份用：把存在 localStorage 的本机配置随导出一起带走（键名须与 importFullData 对齐）
 import { exportPostOfficeLocal } from '../utils/vrWorld/postOffice';
 import { exportWorldHomeLocal } from '../utils/worldHome/localBackup';
@@ -2255,12 +2256,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               if (char.mountedWorldbooks?.some(m => m.id === id)) {
                   const newMounted = char.mountedWorldbooks.map(m =>
                       m.id === id
-                          ? {
-                              id: fullUpdatedWb.id,
-                              title: fullUpdatedWb.title,
-                              content: fullUpdatedWb.content,
-                              category: fullUpdatedWb.category,
-                            }
+                          ? toMountedWorldbook(fullUpdatedWb)
                           : m
                   );
                   const newChar = { ...char, mountedWorldbooks: newMounted };

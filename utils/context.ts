@@ -3,6 +3,12 @@ import { CharacterProfile, UserProfile, DailySchedule } from '../types';
 import { normalizeUserImpression } from './impression';
 import { getFlowNarrativeKey, isScheduleFeatureOn } from './scheduleGenerator';
 import { resolveCharTimeZone, nowInTimeZone, tzAwarenessNote, interactionGapNote } from './timezone';
+import {
+    formatWorldbookSection,
+    resolveWorldbookEntries,
+    splitWorldbookSections,
+    type WorldbookScanMessage,
+} from './worldbook';
 
 /**
  * Memory Central
@@ -112,9 +118,21 @@ export const ContextBuilder = {
             lastInteractionTs?: number;
             /** 抑制整段时间感知（当前时间/时差/距上次联系）。见面纯架空（dateTimeAwarenessEnabled=false）时用。 */
             skipTimeAwareness?: boolean;
+            /** Recent messages used to activate keyword-based worldbook entries. */
+            worldbookMessages?: WorldbookScanMessage[];
         },
     ): string => {
-        let context = `${groupOptions?.headerOverride ?? '[System: Roleplay Configuration]'}\n\n`;
+        const skipBookIds = groupOptions?.skipWorldbookIds;
+        const filteredBooks = (char.mountedWorldbooks || []).filter(wb => !skipBookIds || !skipBookIds.has(wb.id));
+        const worldbookSections = splitWorldbookSections(resolveWorldbookEntries(
+            filteredBooks,
+            timeOptions?.worldbookMessages || [],
+            char.name,
+            user.name,
+        ));
+
+        let context = formatWorldbookSection(worldbookSections.beforeCharacter, '世界书 · 角色设定前');
+        context += `${groupOptions?.headerOverride ?? '[System: Roleplay Configuration]'}\n\n`;
 
         // 1. 核心身份 (Identity)
         context += `### 你的身份 (Character)\n`;
@@ -166,30 +184,9 @@ export const ContextBuilder = {
             context += `### 世界观与设定 (World Settings)\n${char.worldview}\n\n`;
         }
 
-        // [NEW] 挂载的世界书 (Mounted Worldbooks) - GROUPED BY CATEGORY
-        // 群聊场景下：共享世界书已被 buildGroupSharedScene 提取到顶部场景块，这里跳过去重 ID
-        const skipBookIds = groupOptions?.skipWorldbookIds;
-        const filteredBooks = (char.mountedWorldbooks || []).filter(wb => !skipBookIds || !skipBookIds.has(wb.id));
-        if (filteredBooks.length > 0) {
-            context += `### 扩展设定集 (Worldbooks)\n`;
-
-            // Group books by category
-            const groupedBooks: Record<string, typeof filteredBooks> = {};
-            filteredBooks.forEach(wb => {
-                const cat = wb.category || '通用设定 (General)';
-                if (!groupedBooks[cat]) groupedBooks[cat] = [];
-                groupedBooks[cat].push(wb);
-            });
-
-            // Output grouped content
-            Object.entries(groupedBooks).forEach(([category, books]) => {
-                context += `#### [${category}]\n`;
-                books.forEach(wb => {
-                    context += `**Title: ${wb.title}**\n${wb.content}\n---\n`;
-                });
-                context += `\n`;
-            });
-        }
+        context += formatWorldbookSection(worldbookSections.afterCharacter, '扩展设定集 (Worldbooks)');
+        context += formatWorldbookSection(worldbookSections.beforeExamples, '世界书 · 示例消息前');
+        context += formatWorldbookSection(worldbookSections.afterExamples, '世界书 · 示例消息后');
 
         // 3. 用户画像 (User Profile)
         // 群聊场景下：用户画像已在共享场景块顶部，这里跳过避免重复
@@ -294,6 +291,9 @@ export const ContextBuilder = {
             console.log(`🎭 [Context] Active buffs:`, JSON.stringify(char.activeBuffs || [], null, 2));
         }
 
+        context += formatWorldbookSection(worldbookSections.authorsNoteTop, '世界书 · 作者注释顶部');
+        context += formatWorldbookSection(worldbookSections.authorsNoteBottom, '世界书 · 作者注释底部');
+
         // 7. 表达底线 (Anti-Filler) —— 全 App 通用的精简版防套话提示。
         // 模型八股（空泛感慨、万能句式）是"没话找话"时的填充物，这里只做正向引导
         // （去挖具体素材），不列任何禁语——把禁语写进提示词反而会激活它（粉色大象）。
@@ -340,6 +340,7 @@ export const ContextBuilder = {
     buildGroupSharedScene: (
         members: CharacterProfile[],
         user: UserProfile,
+        worldbookMessages: WorldbookScanMessage[] = [],
     ): {
         text: string;
         sharedWorldbookIds: Set<string>;
@@ -390,22 +391,8 @@ export const ContextBuilder = {
             text += `### 共有世界观 (Shared World Settings)\n${members[0].worldview!.trim()}\n\n`;
         }
 
-        if (sharedBooks.length > 0) {
-            text += `### 共有扩展设定集 (Shared Worldbooks)\n`;
-            const groupedBooks: Record<string, typeof sharedBooks> = {};
-            sharedBooks.forEach(wb => {
-                const cat = wb.category || '通用设定 (General)';
-                if (!groupedBooks[cat]) groupedBooks[cat] = [];
-                groupedBooks[cat].push(wb);
-            });
-            Object.entries(groupedBooks).forEach(([category, books]) => {
-                text += `#### [${category}]\n`;
-                books.forEach(wb => {
-                    text += `**Title: ${wb.title}**\n${wb.content}\n---\n`;
-                });
-                text += `\n`;
-            });
-        }
+        const resolvedSharedBooks = resolveWorldbookEntries(sharedBooks, worldbookMessages, '', user.name);
+        text += formatWorldbookSection(resolvedSharedBooks, '共有扩展设定集 (Shared Worldbooks)');
 
         return { text, sharedWorldbookIds, worldviewIsShared };
     },
