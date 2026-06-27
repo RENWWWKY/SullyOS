@@ -279,6 +279,9 @@ const CheckPhone: React.FC = () => {
     const [showProfile, setShowProfile] = useState(false);
     // 话题盒记忆：长按编辑/删除
     const [topicEdit, setTopicEdit] = useState<{ contactId: string; topicId: string; text: string } | null>(null);
+    // 联系人列表：长按进入多选，批量删除
+    const [contactSelectMode, setContactSelectMode] = useState(false);
+    const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
 
     // Custom App Creation State
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -1381,6 +1384,19 @@ ${olderText}
         addToast('联系人及相关记录已彻底移除', 'success');
     };
 
+    // 联系人多选 / 批量删除
+    const toggleContactSelect = (id: string) => setSelectedContactIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    const exitContactSelect = () => { setContactSelectMode(false); setSelectedContactIds([]); };
+    const handleBatchRemoveContacts = async () => {
+        const ids = [...selectedContactIds];
+        const targets = (targetChar?.phoneState?.contacts || []).filter(c => ids.includes(c.id));
+        exitContactSelect();
+        for (const c of targets) await handleRemoveContact(c); // 复用「彻底移除」：连记录/卡片/镜像一起清
+        setSelectedContact(null);
+        setActiveAppId('contacts');
+        addToast(`已移除 ${targets.length} 个聊天`, 'success');
+    };
+
     // 改绑定：把联系人改绑到「正确的真实角色」或「转为虚构 NPC」，保留这段对话 + 备注 + 了解 + 好感。
     // 仔细处理各种情况：清掉旧的错绑镜像、给新角色建镜像、防自绑/重复绑/无变化。
     const handleRebindContact = async (
@@ -2096,8 +2112,11 @@ ${olderText}
         const list = contacts.filter(c => !isUserName(c.name)).sort((a, b) => (b.lastInteraction || b.createdAt) - (a.lastInteraction || a.createdAt));
         return (
             <SubAppShell>
-                <TermHeader title="联系人" sub={`${list.length} contacts`} accent={accent} onBack={() => setActiveAppId('home')}
-                    right={<button onClick={() => setShowContactModal(true)} className="text-white/80 active:scale-90 transition"><UserPlus size={20} weight="bold" /></button>} />
+                <TermHeader title={contactSelectMode ? `已选 ${selectedContactIds.length}` : '联系人'} sub={contactSelectMode ? '长按进入了多选' : `${list.length} contacts`} accent={accent}
+                    onBack={() => { if (contactSelectMode) exitContactSelect(); else setActiveAppId('home'); }}
+                    right={contactSelectMode
+                        ? <button onClick={exitContactSelect} className="text-[12px] font-semibold text-white/80 active:scale-90 transition">取消</button>
+                        : <button onClick={() => setShowContactModal(true)} className="text-white/80 active:scale-90 transition"><UserPlus size={20} weight="bold" /></button>} />
                 {/* 约束开关：是否允许虚构 NPC */}
                 <div className="px-4 pt-1 pb-2 shrink-0">
                     <div className="w-full flex items-center gap-2 rounded-xl px-3 py-2 bg-white/[0.04] border border-white/[0.07]">
@@ -2132,9 +2151,19 @@ ${olderText}
                         const badge = kindBadge(c);
                         const dimmed = c.status === 'deleted' || c.status === 'blocked';
                         const av = contactAvatar(c);
+                        const selected = selectedContactIds.includes(c.id);
                         return (
-                            <div key={c.id} onClick={() => { setSelectedContact(c); setNoteDraft(c.note || ''); setEditingNote(false); setConvExpanded(false); setAffinityDraft(null); setShowProfile(false); setActiveAppId('contact_detail'); }}
-                                className={`group relative flex items-center gap-3.5 rounded-2xl p-3.5 bg-white/[0.035] border border-white/[0.06] active:scale-[0.99] transition cursor-pointer animate-fade-in ${dimmed ? 'opacity-45' : ''}`}>
+                            <div key={c.id}
+                                {...longPress(() => { setContactSelectMode(true); toggleContactSelect(c.id); })}
+                                onClick={() => {
+                                    if (lpFired.current) { lpFired.current = false; return; }
+                                    if (contactSelectMode) { toggleContactSelect(c.id); return; }
+                                    setSelectedContact(c); setNoteDraft(c.note || ''); setEditingNote(false); setConvExpanded(false); setAffinityDraft(null); setShowProfile(false); setActiveAppId('contact_detail');
+                                }}
+                                className={`group relative flex items-center gap-3 rounded-2xl p-3.5 border active:scale-[0.99] transition cursor-pointer animate-fade-in select-none ${selected ? 'bg-pink-500/10 border-pink-400/40' : 'bg-white/[0.035] border-white/[0.06]'} ${dimmed && !selected ? 'opacity-45' : ''}`}>
+                                {contactSelectMode && (
+                                    <span className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 text-[11px] font-bold transition ${selected ? 'bg-pink-500 border-pink-500 text-white' : 'border-white/30 text-transparent'}`}>✓</span>
+                                )}
                                 {av ? (
                                     <img src={av} alt="" className="w-12 h-12 rounded-2xl object-cover shrink-0" />
                                 ) : (
@@ -2162,7 +2191,25 @@ ${olderText}
                         );
                     })}
                 </div>
-                <RefreshFab onClick={() => handleGenerate('contacts')} label="扫描通讯录" accent={accent} loading={isLoading} />
+                {contactSelectMode ? (
+                    <div className="absolute bottom-7 inset-x-0 flex justify-center gap-2 px-6 z-30 pointer-events-none">
+                        <button onClick={() => setSelectedContactIds(selectedContactIds.length === list.length ? [] : list.map(c => c.id))}
+                            className="pointer-events-auto px-4 py-3 rounded-full text-[12px] font-semibold text-white/85 bg-white/[0.1] border border-white/15 backdrop-blur-xl active:scale-95 transition">
+                            {selectedContactIds.length === list.length && list.length > 0 ? '取消全选' : '全选'}
+                        </button>
+                        <button disabled={!selectedContactIds.length}
+                            onClick={() => askConfirm({
+                                title: `批量移除选中的 ${selectedContactIds.length} 个聊天？`,
+                                desc: '会把选中的联系人连同各自的聊天记录、私聊卡片，以及真人对方手机里的镜像，一并彻底删除。',
+                                confirmLabel: '彻底移除', danger: true, onConfirm: handleBatchRemoveContacts,
+                            })}
+                            className="pointer-events-auto px-6 py-3 rounded-full text-[12px] font-semibold text-white bg-rose-500 disabled:opacity-40 active:scale-95 transition flex items-center gap-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
+                            <Trash size={14} weight="bold" /> 移除 {selectedContactIds.length || ''}
+                        </button>
+                    </div>
+                ) : (
+                    <RefreshFab onClick={() => handleGenerate('contacts')} label="扫描通讯录" accent={accent} loading={isLoading} />
+                )}
             </SubAppShell>
         );
     };
