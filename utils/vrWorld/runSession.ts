@@ -28,7 +28,7 @@ import { getCharLyricSnippet } from '../charLyricCache';
 import { getRoom, VR_DEFAULT_INTERVAL_MIN, rollPoemLines } from './constants';
 import { getVRApi, logVRApiCall } from './vrApi';
 import { PostOffice } from './postOffice';
-import { Signal, SignalState } from './signal';
+import { Signal, SignalState, recordMyLine } from './signal';
 import { getReadingWindow, getBookmark, buildAnnotation } from './novel';
 import {
     buildVRSystemAddendum, buildLibraryRoomTurn, parseVROutput,
@@ -521,6 +521,9 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
                 }
             }
             await updateCharacter(char.id, { vrState: { ...prevState, currentRoom: 'signal', lastActiveAt: Date.now() } });
+            // 记本地精确归属：刚写下的那句（resultPoem 末句）是本 char 写的
+            const myLine = resultPoem?.lines?.[resultPoem.lines.length - 1];
+            if (resultPoem && myLine) recordMyLine(resultPoem.id, myLine.seq, char.name);
             const linesSoFar = (resultPoem?.lines || []).map(l => l.content);
             const lineSeq = linesSoFar.length;
             const poemTitle = resultPoem?.title || parsed.title || '无题';

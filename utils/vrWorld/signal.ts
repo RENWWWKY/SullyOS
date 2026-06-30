@@ -22,6 +22,25 @@ export interface SignalState {
     paused?: boolean;
 }
 
+// ── 本地精确归属：诗是匿名的（pen 马赛克），但「我这台机器哪句是哪个 char 写的」
+// 只对自己有意义、也只该自己知道，故纯本地存 (poemId → seq → charName)。换设备不带走。
+const AUTHOR_KEY = 'signal_my_authorship';
+type AuthorMap = Record<string, Record<string, string>>;
+export function recordMyLine(poemId: string, seq: number, charName: string): void {
+    try {
+        const m: AuthorMap = JSON.parse(localStorage.getItem(AUTHOR_KEY) || '{}');
+        (m[poemId] ||= {})[String(seq)] = charName;
+        const keys = Object.keys(m);
+        if (keys.length > 80) for (const k of keys.slice(0, keys.length - 80)) delete m[k]; // 防膨胀，留最近 80 首
+        localStorage.setItem(AUTHOR_KEY, JSON.stringify(m));
+    } catch { /* ignore */ }
+}
+/** 取某首诗里「我这台机器写的句子」→ {seq: charName}。 */
+export function getMyAuthorship(poemId: string): Record<string, string> {
+    try { return (JSON.parse(localStorage.getItem(AUTHOR_KEY) || '{}') as AuthorMap)[poemId] || {}; }
+    catch { return {}; }
+}
+
 async function call<T>(path: string, opts: RequestInit & { query?: Record<string, string> } = {}): Promise<T> {
     const base = getPostOfficeBase();
     const qs = opts.query ? '?' + new URLSearchParams(opts.query).toString() : '';

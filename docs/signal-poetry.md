@@ -67,6 +67,11 @@
 - `/poem/current` 与 `/poem/feed` 带 `?device=本机码` 时，后端**只对请求者**在每句打 `mine`、整首给 `mineCount`（`SignalPoemLine.mine` / `SignalPoem.mineCount`），**绝不返回别人的 device**。
 - `/poem/feed?mine=1` 只返回本机参与过的诗。
 - 客户端 `Signal.current()` / `Signal.feed()` 默认带上 `getDeviceId()`，于是 mine 标记自动可用。
+- **精确到具体哪个 char**：`mine` 只到设备级（一台机器多个 char）。`recordMyLine`（写诗成功后在 `runSession` 调）把 `(poemId→seq→charName)` **纯本地**存在 `localStorage['signal_my_authorship']`；面板 `getMyAuthorship` 读出来，你自己的句子显示「你 · 角色名」。真实角色名不上后端（后端只有马赛克 pen），换设备不带走。
+
+## 诗全文不被截断（注入路径）
+
+诗的全文走的是**最后一条 user turn**（`roomTurn`），**不经过 `ContextBuilder`/systemPrompt**：`messages = [{system}, ...历史, {user: roomTurn=逐句全文}]`。`ContextBuilder` 只搭 systemPrompt，碰不到 `roomTurn`，后者原样发出；一首诗 ≤12 句×24 字≈300 字，无截断风险。接龙时喂的是「到目前为止的逐句全文」，角色读得到整首。
 
 ## 前端 UI（`apps/VRWorldApp.tsx`）—— 满配星图（读诗第一）
 

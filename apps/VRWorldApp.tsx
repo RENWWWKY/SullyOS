@@ -15,7 +15,7 @@ import { buildNovelAsync, groupAnnotationsBySeg, getBookmark } from '../utils/vr
 import { decodeBytes } from '../utils/vrWorld/decodeText';
 import { stripLeakedAttrs } from '../utils/vrWorld/prompts';
 import { PostOffice, MAX_LETTER_CHARS, exportIdentity, importIdentity, getAdminToken, setAdminToken, type RemoteReply, type RemoteLetterStat, type RemoteAdminLetter } from '../utils/vrWorld/postOffice';
-import { Signal, type SignalState } from '../utils/vrWorld/signal';
+import { Signal, getMyAuthorship, type SignalState } from '../utils/vrWorld/signal';
 import type { SignalPoem } from '../types';
 import { getVRApi, setVRApi, getVRApiLog, clearVRApiLog, type VRApiCall } from '../utils/vrWorld/vrApi';
 import { safeResponseJson } from '../utils/safeApi';
@@ -1584,8 +1584,8 @@ const signalHashX = (id: string): number => {
 };
 const isMineLine = (l: SignalPoem['lines'][number]) => !!l.mine;
 
-/** 一句诗的展示行：mine 暖光 + 「你」。 */
-const PoemLineRow: React.FC<{ l: SignalPoem['lines'][number]; showSeq?: boolean }> = ({ l, showSeq }) => {
+/** 一句诗的展示行：mine 暖光 +「你」（有本地归属则「你 · 角色名」）。 */
+const PoemLineRow: React.FC<{ l: SignalPoem['lines'][number]; showSeq?: boolean; mineName?: string }> = ({ l, showSeq, mineName }) => {
     const mine = isMineLine(l);
     return (
         <div className="flex gap-2 leading-relaxed" style={{ fontSize: '12.5px' }}>
@@ -1593,7 +1593,7 @@ const PoemLineRow: React.FC<{ l: SignalPoem['lines'][number]; showSeq?: boolean 
             <span className="flex-1">
                 <span style={{ fontStyle: 'italic', color: mine ? 'rgb(253,230,170)' : 'rgba(255,255,255,.88)', textShadow: mine ? '0 0 10px rgba(251,191,36,.45)' : 'none' }}>{l.content}</span>
                 {mine
-                    ? <span className="ml-1.5 text-[8px] align-middle rounded-full px-1 py-[1px] text-amber-100" style={{ background: 'rgba(251,191,36,.18)', border: '1px solid rgba(251,191,36,.4)' }}>你</span>
+                    ? <span className="ml-1.5 text-[8px] align-middle rounded-full px-1 py-[1px] text-amber-100 whitespace-nowrap" style={{ background: 'rgba(251,191,36,.18)', border: '1px solid rgba(251,191,36,.4)' }}>{mineName ? `你 · ${mineName}` : '你'}</span>
                     : <span className="text-[9px]" style={{ color: 'rgba(165,180,252,.4)' }}> — {l.pen}</span>}
             </span>
         </div>
@@ -1770,7 +1770,7 @@ const SignalPanel: React.FC<{ addToast?: (m: string, t?: any) => void }> = ({ ad
                                 <div className="text-[13px] font-bold text-indigo-50" style={{ fontFamily: `'Noto Serif SC',serif` }}>《{poem.title}》</div>
                                 <div className="text-[9.5px] text-indigo-300/55 mb-2.5">篇幅 {poem.targetLines} 句 · 已坠落 {poem.lineCount} 句 · 还差 {Math.max(0, poem.targetLines - poem.lineCount)} 句封笔</div>
                                 <div className="space-y-1.5">
-                                    {(poem.lines || []).map(l => <PoemLineRow key={l.seq} l={l} showSeq />)}
+                                    {(() => { const auth = getMyAuthorship(poem.id); return (poem.lines || []).map(l => <PoemLineRow key={l.seq} l={l} showSeq mineName={l.mine ? auth[String(l.seq)] : undefined} />); })()}
                                     {/* 等下一次坠落：搏动的光标 = 一次 die 与重生的心跳 */}
                                     <div className="flex gap-2 items-center text-[11.5px] pt-0.5">
                                         <span className="tabular-nums text-[10px] shrink-0 w-4 text-right text-indigo-300/35">{poem.lineCount + 1}</span>
@@ -1833,7 +1833,7 @@ const SignalPanel: React.FC<{ addToast?: (m: string, t?: any) => void }> = ({ ad
                             <div className="text-[9px] text-indigo-300/45 mt-1">{openPoem.lineCount} 句 · {(openPoem.mineCount || 0) > 0 ? <span className="text-amber-200/80">你的回声落在这里 {openPoem.mineCount} 句</span> : '一首陌生人合写的诗'}</div>
                         </div>
                         <div className="space-y-2.5 max-w-md mx-auto">
-                            {(openPoem.lines || []).map(l => <PoemLineRow key={l.seq} l={l} />)}
+                            {(() => { const auth = getMyAuthorship(openPoem.id); return (openPoem.lines || []).map(l => <PoemLineRow key={l.seq} l={l} mineName={l.mine ? auth[String(l.seq)] : undefined} />); })()}
                         </div>
                     </div>
                     <button onClick={() => setOpenPoem(null)} className="shrink-0 mx-auto mb-4 mt-1 text-[11px] text-white/60 rounded-full px-5 py-1.5 bg-white/8 active:bg-white/15" style={{ marginBottom: vrBottomPad('1rem') }}>合上</button>
