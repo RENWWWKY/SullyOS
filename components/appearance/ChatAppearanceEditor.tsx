@@ -1,5 +1,7 @@
 import React from 'react';
 import { OSTheme } from '../../types';
+import WhiteboxSoundEditor from '../chat/WhiteboxSoundEditor';
+import { WhiteboxSound } from '../../utils/whiteboxSound';
 
 type Props = {
     theme: OSTheme;
@@ -368,7 +370,7 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme, onRe
             <section className={groupClass}>
                 <div className="mb-3">
                     <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">聊天壳预设</h2>
-                    <p className="mt-1 text-[10px] text-slate-400">先把聊天界面做成可换壳，再继续拆细到更多模块级 DIY。</p>
+                    <p className="mt-1 text-[10px] text-slate-400">自由更换聊天界面的外观。</p>
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {presets.map((preset) => (
@@ -517,6 +519,21 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme, onRe
                 <div className="mt-4">
                     <ChoiceGroup title="发送按钮" items={choices.send} value={sendButtonStyle} onPick={(value) => updateTheme({ chatSendButtonStyle: value as OSTheme['chatSendButtonStyle'] })} />
                 </div>
+            </section>
+
+            <section className={groupClass}>
+                <div className="mb-3">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">全局默认提示音</h2>
+                    <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                        某角色没单独设提示音时，收到 ta 的新消息就用这里的默认音。角色自己在「＋」菜单「提示音」里设的会盖过全局。
+                    </p>
+                </div>
+                <WhiteboxSoundEditor
+                    sound={(theme.chatSound as WhiteboxSound | undefined) || null}
+                    showBind={false}
+                    onChangeSound={(s) => updateTheme({ chatSound: s || undefined })}
+                    hint={<>🔔 <b>全局默认</b>：某角色未单独设提示音时，收到 ta 新发的最后一条消息就响这个。角色自己设的会盖过它。</>}
+                />
             </section>
 
             <section className={groupClass}>
