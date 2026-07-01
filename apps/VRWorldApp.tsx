@@ -1642,13 +1642,13 @@ const isMineLine = (l: SignalPoem['lines'][number]) => !!l.mine;
 const PoemLineRow: React.FC<{ l: SignalPoem['lines'][number]; showSeq?: boolean; mineName?: string }> = ({ l, showSeq, mineName }) => {
     const mine = isMineLine(l);
     return (
-        <div className="flex gap-2 leading-relaxed" style={{ fontSize: '12.5px' }}>
-            {showSeq && <span className="tabular-nums text-[10px] mt-0.5 shrink-0 w-4 text-right" style={{ color: mine ? 'rgba(251,191,36,.6)' : 'rgba(165,180,252,.4)' }}>{l.seq}</span>}
-            <span className="flex-1">
-                <span style={{ fontStyle: 'italic', color: mine ? 'rgb(253,230,170)' : 'rgba(255,255,255,.88)', textShadow: mine ? '0 0 10px rgba(251,191,36,.45)' : 'none' }}>{l.content}</span>
+        <div className="flex gap-3 items-start py-2" style={{ borderBottom: '1px solid rgba(201,168,106,.1)' }}>
+            {showSeq && <span className="tabular-nums text-[10px] mt-1 shrink-0 w-5 text-right" style={{ fontFamily: `'Noto Serif SC',serif`, color: mine ? 'rgba(240,220,168,.7)' : 'rgba(201,168,106,.4)' }}>{l.seq}</span>}
+            <span className="flex-1 leading-relaxed" style={{ fontSize: '13.5px', fontFamily: `'Noto Serif SC',serif` }}>
+                <span style={{ color: mine ? '#f3e2b4' : 'rgba(233,222,201,.9)', textShadow: mine ? '0 0 12px rgba(201,168,106,.5)' : 'none' }}>{l.content}</span>
                 {mine
-                    ? <span className="ml-1.5 text-[8px] align-middle rounded-full px-1 py-[1px] text-amber-100 whitespace-nowrap" style={{ background: 'rgba(251,191,36,.18)', border: '1px solid rgba(251,191,36,.4)' }}>{mineName ? `你 · ${mineName}` : '你'}</span>
-                    : <span className="text-[9px]" style={{ color: 'rgba(165,180,252,.4)' }}> — {l.pen}</span>}
+                    ? <span className="ml-2 text-[8px] align-middle rounded-sm px-1.5 py-[1px] whitespace-nowrap" style={{ color: '#2a2012', background: 'linear-gradient(180deg,#e6ce97,#c9a86a)', border: '1px solid rgba(120,92,48,.5)' }}>{mineName ? `你 · ${mineName}` : '你'}</span>
+                    : <span className="text-[9px] tracking-wide" style={{ color: 'rgba(201,168,106,.45)' }}> — {l.pen}</span>}
             </span>
         </div>
     );
@@ -1790,63 +1790,86 @@ const SignalPanel: React.FC<{ addToast?: (m: string, t?: any) => void; character
 
     return (
         <div className="absolute left-3 right-3 z-20 rounded-2xl overflow-hidden flex flex-col backdrop-blur-md"
-            style={{ top: VR_ROOM_PANEL_TOP, bottom: vrBottomPad('4rem'), background: 'rgba(10,11,34,0.66)', border: '1px solid rgba(150,160,255,0.22)', boxShadow: '0 8px 26px rgba(0,0,0,.4)' }}>
+            style={{ top: VR_ROOM_PANEL_TOP, bottom: vrBottomPad('4rem'), background: 'linear-gradient(165deg,#241c31 0%,#17111f 52%,#0e0a15 100%)', border: '1px solid rgba(201,168,106,0.32)', boxShadow: '0 10px 30px rgba(0,0,0,.5), inset 0 0 60px rgba(0,0,0,.45)' }}>
+            {/* 复古质感层（重返1999调性）：纸纹微噪 + 暗角 + 顶部铜金微光 */}
+            <div className="pointer-events-none absolute inset-0 z-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(circle at 50% -10%, rgba(230,213,168,.9), transparent 55%), repeating-linear-gradient(0deg, rgba(255,255,255,.6) 0 1px, transparent 1px 3px)' }} />
+            <div className="pointer-events-none absolute inset-0 z-0" style={{ background: 'radial-gradient(125% 95% at 50% 32%, transparent 52%, rgba(6,4,10,.72) 100%)' }} />
+            <div className="pointer-events-none absolute inset-0 z-0" style={{ background: 'linear-gradient(180deg, rgba(201,168,106,.11), transparent 22%)' }} />
+            {/* 四角铜饰 */}
+            {[['top-1.5 left-1.5', 'border-t border-l'], ['top-1.5 right-1.5', 'border-t border-r'], ['bottom-1.5 left-1.5', 'border-b border-l'], ['bottom-1.5 right-1.5', 'border-b border-r']].map(([pos, b], i) => (
+                <div key={i} className={`pointer-events-none absolute ${pos} w-3.5 h-3.5 ${b} z-[25]`} style={{ borderColor: 'rgba(201,168,106,.55)' }} />
+            ))}
             {/* 封面：标题 + 题记 */}
-            <div className="px-3.5 pt-2.5 pb-2 border-b border-white/10" style={{ background: 'linear-gradient(180deg, rgba(60,56,140,.18), transparent)' }}>
+            <div className="relative z-10 px-4 pt-3 pb-2.5" style={{ background: 'linear-gradient(180deg, rgba(58,44,74,.34), transparent)', borderBottom: '1px solid rgba(201,168,106,.22)' }}>
                 <div className="flex items-baseline gap-2">
-                    <span className="text-[12.5px] tracking-[0.18em] text-indigo-50" style={{ fontFamily: `'Noto Serif SC',serif` }}>{bk?.title || '信号坠落处'}</span>
-                    {bk?.subtitle && <span className="text-[9.5px] text-indigo-300/60 tracking-wider">{bk.subtitle}</span>}
-                    {state?.paused && <span className="text-[8px] rounded-full px-1.5 py-[1px] text-rose-100 shrink-0" style={{ background: 'rgba(244,63,94,.3)', border: '1px solid rgba(244,63,94,.5)' }}>已暂停推入</span>}
-                    {/* 后台只在本地 dev 出现；线上普通用户看不到，仍需 ADMIN_TOKEN */}
-                    {import.meta.env.DEV && <button onClick={() => setAdminOpen(true)} className="ml-auto text-[9px] px-2 py-0.5 rounded-full bg-white/8 text-amber-100/80 active:bg-white/15">后台</button>}
-                    {bk && <span className={`${import.meta.env.DEV ? '' : 'ml-auto'} text-[9px] text-white/35 tabular-nums`}>本册 {bk.poemCount}/{bk.poemsTarget} 首</span>}
+                    <span className="text-[15px] tracking-[0.22em]" style={{ fontFamily: `'Noto Serif SC',serif`, color: '#e8d6ab', textShadow: '0 0 14px rgba(201,168,106,.4)' }}>{bk?.title || '信号坠落处'}</span>
+                    {bk?.subtitle && <span className="text-[9px] tracking-[0.2em] text-amber-200/45">{bk.subtitle}</span>}
+                    {state?.paused && <span className="text-[8px] rounded-sm px-1.5 py-[1px] text-rose-100 shrink-0" style={{ background: 'rgba(244,63,94,.28)', border: '1px solid rgba(244,63,94,.5)' }}>已暂停</span>}
+                    {import.meta.env.DEV && <button onClick={() => setAdminOpen(true)} className="ml-auto text-[9px] px-2 py-0.5 rounded-sm text-amber-100/70" style={{ border: '1px solid rgba(201,168,106,.3)' }}>后台</button>}
+                    {bk && <span className={`${import.meta.env.DEV ? '' : 'ml-auto'} text-[9px] tabular-nums`} style={{ fontFamily: `'Noto Serif SC',serif`, color: 'rgba(201,168,106,.7)' }}>{bk.poemCount} / {bk.poemsTarget} 卷</span>}
                 </div>
-                <p className="mt-1 text-[10px] leading-relaxed text-indigo-200/55 whitespace-pre-line" style={{ fontStyle: 'italic' }}>{SIGNAL_EPIGRAPH}</p>
-                {bk?.theme && <div className="text-[9.5px] text-indigo-300/55 mt-1">主题：{bk.theme}</div>}
-                <div className="flex gap-1.5 mt-2">
+                {/* 铜金细分隔线 */}
+                <div className="mt-1.5 h-px w-full" style={{ background: 'linear-gradient(90deg, transparent, rgba(201,168,106,.5) 15%, rgba(201,168,106,.5) 85%, transparent)' }} />
+                <p className="mt-1.5 text-[10px] leading-relaxed whitespace-pre-line" style={{ fontStyle: 'italic', fontFamily: `'Noto Serif SC',serif`, color: 'rgba(224,208,176,.6)' }}>{SIGNAL_EPIGRAPH}</p>
+                {bk?.theme && <div className="text-[9.5px] mt-1" style={{ color: 'rgba(201,168,106,.6)' }}>主题 · {bk.theme}</div>}
+                <div className="flex items-center gap-2 mt-2.5">
                     {([['falling', '正在坠落'], ['sky', '星图']] as const).map(([k, label]) => (
                         <button key={k} onClick={() => setTab(k)}
-                            className={`text-[10.5px] rounded-full px-2.5 py-0.5 font-semibold ${tab === k ? 'bg-indigo-400 text-white' : 'bg-white/8 text-indigo-200/70'}`}>{label}</button>
+                            className="text-[11px] tracking-[0.12em] pb-0.5 transition-colors" style={{
+                                fontFamily: `'Noto Serif SC',serif`,
+                                color: tab === k ? '#e8d6ab' : 'rgba(224,208,176,.45)',
+                                borderBottom: `1.5px solid ${tab === k ? 'rgba(201,168,106,.85)' : 'transparent'}`,
+                            }}>{label}</button>
                     ))}
                     {tab === 'sky' && (
                         <button onClick={() => setMineOnly(m => !m)}
-                            className={`ml-auto text-[10px] rounded-full px-2.5 py-0.5 font-semibold ${mineOnly ? 'text-amber-100' : 'text-indigo-200/60'}`}
-                            style={{ background: mineOnly ? 'rgba(251,191,36,.18)' : 'rgba(255,255,255,.06)', border: `1px solid ${mineOnly ? 'rgba(251,191,36,.4)' : 'transparent'}` }}>
+                            className="ml-auto text-[9.5px] rounded-sm px-2 py-0.5 tracking-wide"
+                            style={{ color: mineOnly ? '#f0dca8' : 'rgba(224,208,176,.5)', background: mineOnly ? 'rgba(201,168,106,.16)' : 'transparent', border: `1px solid ${mineOnly ? 'rgba(201,168,106,.45)' : 'rgba(201,168,106,.18)'}` }}>
                             只看我的回声
                         </button>
                     )}
                 </div>
-                {/* 参与：指定角色去接一句（用户自发发起，占位→调用一次 LLM） */}
+                {/* 参与：指定角色去接一句（黄铜压印质感） */}
                 <button onClick={() => setPickOpen(true)} disabled={!!state?.paused}
-                    className="mt-2.5 w-full rounded-xl py-2 text-[12px] font-bold text-white active:scale-[0.99] disabled:opacity-45"
-                    style={{ background: 'linear-gradient(120deg, rgba(150,168,255,.92), rgba(188,168,255,.85) 55%, rgba(150,212,204,.9))', boxShadow: '0 4px 16px rgba(120,110,220,.35)' }}>
-                    {state?.paused ? '活动已暂停' : '✍ 参与 · 让我的角色接一句'}
+                    className="mt-3 w-full rounded-md py-2 text-[12px] tracking-[0.16em] active:scale-[0.99] disabled:opacity-45"
+                    style={{
+                        fontFamily: `'Noto Serif SC',serif`, color: '#2a2012', fontWeight: 700,
+                        background: 'linear-gradient(180deg, #e6ce97 0%, #c9a86a 55%, #a8874d 100%)',
+                        border: '1px solid rgba(120,92,48,.6)',
+                        boxShadow: '0 3px 12px rgba(120,92,48,.4), inset 0 1px 0 rgba(255,244,214,.7)',
+                    }}>
+                    {state?.paused ? '活动已暂停' : '❦ 参与 · 让我的角色接一句'}
                 </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto vr-reader-scroll">
+            <div className="relative z-10 flex-1 overflow-y-auto vr-reader-scroll">
                 {loading ? (
-                    <p className="text-[11px] text-white/40 text-center py-8">接收信号中…</p>
+                    <p className="text-[11px] text-center py-8" style={{ color: 'rgba(224,208,176,.4)', fontFamily: `'Noto Serif SC',serif` }}>接收信号中…</p>
                 ) : offline ? (
-                    <p className="text-[11px] text-white/45 text-center py-8 leading-relaxed">连不上信号坠落处。<br />检查邮局后端地址，或稍后再来。</p>
+                    <p className="text-[11px] text-center py-8 leading-relaxed" style={{ color: 'rgba(224,208,176,.45)', fontFamily: `'Noto Serif SC',serif` }}>连不上信号坠落处。<br />检查邮局后端地址，或稍后再来。</p>
                 ) : tab === 'falling' ? (
-                    <div className="px-3.5 py-3">
+                    <div className="px-4 py-3.5">
                         {poem ? (
                             <div>
-                                <div className="text-[13px] font-bold text-indigo-50" style={{ fontFamily: `'Noto Serif SC',serif` }}>《{poem.title}》</div>
-                                <div className="text-[9.5px] text-indigo-300/55 mb-2.5">篇幅 {poem.targetLines} 句 · 已坠落 {poem.lineCount} 句 · 还差 {Math.max(0, poem.targetLines - poem.lineCount)} 句封笔</div>
-                                <div className="space-y-1.5">
+                                <div className="text-center mb-1">
+                                    <div className="text-[16.5px]" style={{ fontFamily: `'Noto Serif SC',serif`, color: '#ecdcb2', letterSpacing: '.08em', textShadow: '0 0 12px rgba(201,168,106,.3)' }}>《{poem.title}》</div>
+                                    <div className="my-1.5 flex items-center justify-center gap-2 text-[9px]" style={{ color: 'rgba(201,168,106,.6)' }}>
+                                        <span className="inline-block h-px w-8" style={{ background: 'linear-gradient(90deg,transparent,rgba(201,168,106,.55))' }} />❦<span className="inline-block h-px w-8" style={{ background: 'linear-gradient(90deg,rgba(201,168,106,.55),transparent)' }} />
+                                    </div>
+                                    <div className="text-[9px] tracking-[0.14em]" style={{ color: 'rgba(201,168,106,.55)', fontFamily: `'Noto Serif SC',serif` }}>篇幅 {poem.targetLines} · 已坠落 {poem.lineCount} · 还差 {Math.max(0, poem.targetLines - poem.lineCount)} 句封笔</div>
+                                </div>
+                                <div className="mt-2">
                                     {(() => { const auth = getMyAuthorship(poem.id); return (poem.lines || []).map(l => <PoemLineRow key={l.seq} l={l} showSeq mineName={l.mine ? auth[String(l.seq)] : undefined} />); })()}
                                     {/* 等下一次坠落：搏动的光标 = 一次 die 与重生的心跳 */}
-                                    <div className="flex gap-2 items-center text-[11.5px] pt-0.5">
-                                        <span className="tabular-nums text-[10px] shrink-0 w-4 text-right text-indigo-300/35">{poem.lineCount + 1}</span>
-                                        <span className="inline-block h-3 w-[2px] rounded-full" style={{ background: 'rgba(165,180,252,.8)', animation: 'vrtwinkle 1.4s ease-in-out infinite' }} />
-                                        <span className="text-indigo-300/40 italic">等下一次坠落…</span>
+                                    <div className="flex gap-3 items-center pt-2">
+                                        <span className="tabular-nums text-[9px] shrink-0 w-5 text-right" style={{ fontFamily: `'Noto Serif SC',serif`, color: 'rgba(201,168,106,.4)' }}>{poem.lineCount + 1}</span>
+                                        <span className="inline-block h-3.5 w-[2px]" style={{ background: 'rgba(201,168,106,.85)', animation: 'vrtwinkle 1.4s ease-in-out infinite' }} />
+                                        <span className="text-[11px] italic" style={{ fontFamily: `'Noto Serif SC',serif`, color: 'rgba(224,208,176,.4)' }}>等下一次坠落…</span>
                                     </div>
                                 </div>
                             </div>
                         ) : (
-                            <p className="text-[11px] text-white/45 text-center py-8 leading-relaxed">此刻信号静默，没有正在坠落的诗。<br />点上方「参与」，让你的角色起个新篇。</p>
+                            <p className="text-[11px] text-center py-8 leading-relaxed" style={{ color: 'rgba(224,208,176,.5)', fontFamily: `'Noto Serif SC',serif` }}>此刻信号静默，没有正在坠落的诗。<br />点上方「参与」，让你的角色起个新篇。</p>
                         )}
                     </div>
                 ) : (
@@ -1884,25 +1907,29 @@ const SignalPanel: React.FC<{ addToast?: (m: string, t?: any) => void; character
             </div>
 
             {/* 底注：星图给「卫星 / 你的回声」计数；其它页给旁观说明 */}
-            <div className="px-3.5 py-1.5 border-t border-white/10">
+            <div className="relative z-10 px-4 py-1.5" style={{ borderTop: '1px solid rgba(201,168,106,.18)' }}>
                 {tab === 'sky' && feed.length > 0
-                    ? <p className="text-[9px] text-indigo-300/55 leading-relaxed">这片夜空里有 <span className="text-indigo-100 tabular-nums">{feed.length}</span> 颗卫星 · 你的回声落在其中 <span className="text-amber-200 tabular-nums">{myEchoes}</span> 颗</p>
-                    : <p className="text-[9px] text-indigo-300/45 leading-relaxed">所有用户的角色跨实例合写——你只能旁观。换设备？去邮局导出身份码，诗和信一起找回。</p>}
+                    ? <p className="text-[9px] leading-relaxed" style={{ color: 'rgba(224,208,176,.5)' }}>这片夜空里有 <span className="tabular-nums" style={{ color: '#ecdcb2' }}>{feed.length}</span> 颗卫星 · 你的回声落在其中 <span className="tabular-nums" style={{ color: '#f0dca8' }}>{myEchoes}</span> 颗</p>
+                    : <p className="text-[9px] leading-relaxed" style={{ color: 'rgba(224,208,176,.4)' }}>所有用户的角色跨实例合写——你只能旁观。换设备？去邮局导出身份码，诗和信一起找回。</p>}
             </div>
 
             {/* 读一整首封存的诗 */}
             {openPoem && (
-                <div className="absolute inset-0 z-30 flex flex-col" style={{ background: 'rgba(6,7,22,0.94)' }} onClick={() => setOpenPoem(null)}>
-                    <div className="flex-1 overflow-y-auto vr-reader-scroll px-5 py-6" onClick={e => e.stopPropagation()}>
-                        <div className="text-center mb-4">
-                            <div className="text-[16px] font-bold text-indigo-50" style={{ fontFamily: `'Noto Serif SC',serif` }}>《{openPoem.title}》</div>
-                            <div className="text-[9px] text-indigo-300/45 mt-1">{openPoem.lineCount} 句 · {(openPoem.mineCount || 0) > 0 ? <span className="text-amber-200/80">你的回声落在这里 {openPoem.mineCount} 句</span> : '一首陌生人合写的诗'}</div>
+                <div className="absolute inset-0 z-30 flex flex-col" style={{ background: 'linear-gradient(165deg,#241c31,#120d1a 60%,#0b0812)' }} onClick={() => setOpenPoem(null)}>
+                    <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(120% 90% at 50% 30%, transparent 52%, rgba(6,4,10,.7) 100%)' }} />
+                    <div className="relative flex-1 overflow-y-auto vr-reader-scroll px-6 py-7" onClick={e => e.stopPropagation()}>
+                        <div className="text-center mb-3">
+                            <div className="text-[18px]" style={{ fontFamily: `'Noto Serif SC',serif`, color: '#ecdcb2', letterSpacing: '.08em', textShadow: '0 0 14px rgba(201,168,106,.35)' }}>《{openPoem.title}》</div>
+                            <div className="my-2 flex items-center justify-center gap-2 text-[10px]" style={{ color: 'rgba(201,168,106,.6)' }}>
+                                <span className="inline-block h-px w-10" style={{ background: 'linear-gradient(90deg,transparent,rgba(201,168,106,.55))' }} />❦<span className="inline-block h-px w-10" style={{ background: 'linear-gradient(90deg,rgba(201,168,106,.55),transparent)' }} />
+                            </div>
+                            <div className="text-[9px] tracking-wider" style={{ fontFamily: `'Noto Serif SC',serif`, color: 'rgba(201,168,106,.55)' }}>{openPoem.lineCount} 句 · {(openPoem.mineCount || 0) > 0 ? <span style={{ color: '#f0dca8' }}>你的回声落在这里 {openPoem.mineCount} 句</span> : '一首陌生人合写的诗'}</div>
                         </div>
-                        <div className="space-y-2.5 max-w-md mx-auto">
+                        <div className="max-w-md mx-auto">
                             {(() => { const auth = getMyAuthorship(openPoem.id); return (openPoem.lines || []).map(l => <PoemLineRow key={l.seq} l={l} mineName={l.mine ? auth[String(l.seq)] : undefined} />); })()}
                         </div>
                     </div>
-                    <button onClick={() => setOpenPoem(null)} className="shrink-0 mx-auto mb-4 mt-1 text-[11px] text-white/60 rounded-full px-5 py-1.5 bg-white/8 active:bg-white/15" style={{ marginBottom: vrBottomPad('1rem') }}>合上</button>
+                    <button onClick={() => setOpenPoem(null)} className="relative shrink-0 mx-auto mb-4 mt-1 text-[11px] tracking-[0.2em] rounded-sm px-6 py-1.5" style={{ fontFamily: `'Noto Serif SC',serif`, color: 'rgba(224,208,176,.75)', border: '1px solid rgba(201,168,106,.35)', marginBottom: vrBottomPad('1rem') }}>合 上</button>
                 </div>
             )}
 
