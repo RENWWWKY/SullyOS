@@ -6,6 +6,7 @@ import { DB } from '../../utils/db';
 import DateSettings from './DateSettings';
 import ObserveHUD from './ObserveHUD';
 import { extractObservation, hasObservation } from '../../utils/datePrompts';
+import { clearDateResumeAttempt } from '../../utils/dateSessionRecovery';
 import { cleanTextForTts, VALID_EMOTIONS } from '../../utils/minimaxTts';
 import { synthesizeSpeech, characterHasVoice } from '../../utils/ttsRouter';
 import { resolveTtsProvider } from '../../utils/ttsProvider';
@@ -346,14 +347,15 @@ const DateSession: React.FC<DateSessionProps> = ({
     // Initialization
     useEffect(() => {
         if (initialState) {
-            // Resume
-            setBgImage(initialState.bgImage);
-            setCurrentSprite(initialState.currentSprite);
-            setCurrentText(initialState.currentText);
-            setDisplayedText(initialState.currentText);
-            setDialogueQueue(initialState.dialogueQueue);
-            setDialogueBatch(initialState.dialogueBatch);
-            setIsNovelMode(initialState.isNovelMode);
+            // Resume — 防御性回填：老快照 / 落库竞态可能缺字段，缺数组兜底成 []，
+            // 否则后续 dialogueQueue.length 等取值会抛异常连累整个会话渲染。
+            setBgImage(initialState.bgImage || '');
+            setCurrentSprite(initialState.currentSprite || '');
+            setCurrentText(initialState.currentText || '');
+            setDisplayedText(initialState.currentText || '');
+            setDialogueQueue(Array.isArray(initialState.dialogueQueue) ? initialState.dialogueQueue : []);
+            setDialogueBatch(Array.isArray(initialState.dialogueBatch) ? initialState.dialogueBatch : []);
+            setIsNovelMode(!!initialState.isNovelMode);
         } else {
             // New Session - pick initial sprite from active skin set or default sprites
             const s = (() => {
@@ -584,10 +586,19 @@ const DateSession: React.FC<DateSessionProps> = ({
         // Periodic auto-save every 30s
         const interval = setInterval(saveStateToDB, 30000);
 
+        // 见面「继续上次」崩溃自愈：只要会话稳定挂载并渲染了一小段时间没崩，
+        // 就撤销 DateApp 在恢复前武装的哨兵——证明这份快照能安全加载。若 iOS WebKit
+        // 在此之前把内容进程撑崩（进程级崩溃，不会跑下面的卸载 cleanup），哨兵留存，
+        // 下次进见面即被检出并丢弃这份有毒快照。新会话（无 initialState）无哨兵，clear 为空操作。
+        const settleTimer = setTimeout(() => clearDateResumeAttempt(), 2500);
+
         return () => {
             window.removeEventListener('beforeunload', handleBeforeUnload);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             clearInterval(interval);
+            clearTimeout(settleTimer);
+            // 干净卸载（SPA 内导航离开会话）= 非崩溃，撤销哨兵。
+            clearDateResumeAttempt();
             // 卸载时只把进度直接落库，绝不调用 onExit。onExit 会执行「用户主动退出」的
             // 导航（setMode('select') + 弹「进度已保存」），而卸载在很多非用户意图的场景
             // 都会发生 —— 尤其 React.StrictMode (dev) 的「挂载→卸载→重挂载」探测：

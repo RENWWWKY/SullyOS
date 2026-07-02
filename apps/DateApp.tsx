@@ -12,6 +12,7 @@ import { safeResponseJson } from '../utils/safeApi';
 import Modal from '../components/os/Modal';
 import DateSession from '../components/date/DateSession';
 import DateSettings from '../components/date/DateSettings';
+import { armDateResumeAttempt, clearDateResumeAttempt, takeCrashedDateResume } from '../utils/dateSessionRecovery';
 import { BookOpen, Sparkle, CaretLeft, GearSix } from '@phosphor-icons/react';
 
 const DateApp: React.FC = () => {
@@ -100,6 +101,20 @@ const DateApp: React.FC = () => {
         }
     }, [char, mode]);
 
+    // 见面「继续上次」崩溃自愈：若上次恢复会话时把 iOS WebKit 内容进程撑崩了
+    // (表现为反复灰屏/白屏「此网页反复出现问题」，非可捕获的 JS 异常)，那份重快照
+    // 的哨兵会残留到本次进见面。这里检出后丢弃有毒的 savedDateState（仅清恢复快照，
+    // 消息历史不动），避免用户永久卡在闪退死循环里。只在 DateApp 挂载时跑一次。
+    useEffect(() => {
+        const crashedCharId = takeCrashedDateResume();
+        if (!crashedCharId) return;
+        const crashed = characters.find(c => c.id === crashedCharId);
+        if (crashed?.savedDateState) {
+            updateCharacter(crashedCharId, { savedDateState: undefined });
+            addToast('上次见面异常退出，已清理存档，可重新开始', 'info');
+        }
+    }, []); // 仅挂载时检查一次
+
     // --- Navigation Helpers ---
     const handleBack = () => {
         if (mode === 'peek') {
@@ -144,6 +159,9 @@ const DateApp: React.FC = () => {
 
     const handleResumeSession = () => {
         if (!pendingSessionChar) return;
+        // 恢复尝试开始前先武装崩溃哨兵：若这份重快照在 iOS 上把内容进程撑崩，
+        // 哨兵会残留到下次进见面被检出并清理（见挂载时的自愈 effect）。
+        armDateResumeAttempt(pendingSessionChar.id);
         setActiveCharacterId(pendingSessionChar.id);
         setMode('session');
         setPendingSessionChar(null);
@@ -152,6 +170,8 @@ const DateApp: React.FC = () => {
 
     const handleStartNewSession = () => {
         if (!pendingSessionChar) return;
+        // 新会话没有恢复快照可重放，撤销任何残留哨兵。
+        clearDateResumeAttempt();
         updateCharacter(pendingSessionChar.id, { savedDateState: undefined });
         startPeek(pendingSessionChar);
         setPendingSessionChar(null);
@@ -447,6 +467,8 @@ const DateApp: React.FC = () => {
     };
 
     const onExitSession = (finalState: DateState) => {
+        // 用户主动保存并退出 = 干净退出，撤销恢复哨兵。
+        clearDateResumeAttempt();
         if (char) {
             updateCharacter(char.id, { savedDateState: finalState });
             addToast('进度已保存', 'success');
