@@ -1879,35 +1879,85 @@ const SignalPanel: React.FC<{ addToast?: (m: string, t?: any) => void; character
                     feed.length === 0 ? (
                         <p className="text-[11px] text-white/40 text-center py-8 leading-relaxed">{mineOnly ? '你的回声还没落进任何一颗卫星。' : '还没有写完封存的诗。'}</p>
                     ) : (
-                        // 星图（做旧星图调）：每首封存的诗一颗星子，竖向铺开、横向按 id 散落；
-                        // 陌生人的诗＝暗金羊皮纸色，你参与过的＝亮金光晕。
-                        <div className="relative px-2 py-4" style={{ minHeight: '100%' }}>
-                            {/* 暖调星尘 */}
-                            <div className="pointer-events-none absolute inset-0 opacity-60" style={{ backgroundImage: 'radial-gradient(1px 1px at 20% 12%, rgba(230,213,168,.5), transparent), radial-gradient(1px 1px at 66% 30%, rgba(201,168,106,.4), transparent), radial-gradient(1px 1px at 40% 60%, rgba(236,220,178,.35), transparent), radial-gradient(1px 1px at 82% 78%, rgba(201,168,106,.4), transparent)' }} />
-                            <div className="relative space-y-4">
-                                {feed.map(p => {
-                                    const mine = (p.mineCount || 0) > 0;
-                                    const sz = 11 + Math.min(15, p.lineCount * 1.3);
-                                    return (
-                                        <button key={p.id} onClick={() => setOpenPoem(p)}
-                                            className="relative block w-full text-left active:opacity-80" style={{ height: `${sz + 8}px` }}>
-                                            <span className="absolute -translate-y-1/2 top-1/2 flex items-center gap-2.5" style={{ left: `${signalHashX(p.id)}%` }}>
-                                                {/* 星子 */}
-                                                <span className="rounded-full shrink-0" style={{
-                                                    width: sz, height: sz,
-                                                    background: mine ? 'radial-gradient(circle at 34% 32%, #fff0c4, #e6ce97 55%, #c9a86a)' : 'radial-gradient(circle at 34% 32%, #d8c8a0, #a89066 60%, #6f5d3e)',
-                                                    boxShadow: mine
-                                                        ? '0 0 16px 3px rgba(230,206,151,.6), 0 0 0 4px rgba(201,168,106,.18)'
-                                                        : '0 0 9px 1px rgba(201,168,106,.35)',
-                                                }} />
-                                                <span className="text-[11.5px] truncate max-w-[42vw]" style={{ fontFamily: `'Noto Serif SC',serif`, letterSpacing: '.04em', color: mine ? '#f0dca8' : 'rgba(224,208,176,.72)' }}>《{cleanTitle(p.title)}》</span>
-                                                <span className="text-[8.5px] tabular-nums shrink-0" style={{ fontFamily: `'Noto Serif SC',serif`, color: mine ? 'rgba(240,220,168,.6)' : 'rgba(201,168,106,.45)' }}>{p.lineCount} 句</span>
-                                            </span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
+                        // 轨道图：一颗「始终不开口的核心」，每首封存的诗是一颗绕核慢转的电子卫星。
+                        // 只用 transform/opacity 动画（GPU 合成），手机也流畅；公转极慢，点得中。
+                        (() => {
+                            // 由内向外逐环装填；环容量与半径
+                            const CAPS = [6, 9, 12, 14];
+                            const RADII = [48, 84, 120, 152];
+                            const placed = feed.slice(0, CAPS.reduce((a, b) => a + b, 0)).map((p, i) => {
+                                let ring = 0, idx = i;
+                                while (ring < CAPS.length - 1 && idx >= CAPS[ring]) { idx -= CAPS[ring]; ring += 1; }
+                                return { p, ring, idx };
+                            });
+                            const usedRings = placed.length ? placed[placed.length - 1].ring + 1 : 1;
+                            const maxR = RADII[usedRings - 1];
+                            const canvasH = (maxR + 26) * 2;
+                            return (
+                                <div className="px-2 pt-3 pb-1">
+                                    {/* ── 轨道画布 ── */}
+                                    <div className="relative mx-auto overflow-hidden" style={{ height: canvasH, maxWidth: '100%' }}>
+                                        {/* 暖调星尘 */}
+                                        <div className="pointer-events-none absolute inset-0 opacity-60" style={{ backgroundImage: 'radial-gradient(1px 1px at 20% 12%, rgba(230,213,168,.5), transparent), radial-gradient(1px 1px at 66% 30%, rgba(201,168,106,.4), transparent), radial-gradient(1px 1px at 40% 60%, rgba(236,220,178,.35), transparent), radial-gradient(1px 1px at 82% 78%, rgba(201,168,106,.4), transparent)' }} />
+                                        {/* 轨道环（虚线，工程图纸感） */}
+                                        {RADII.slice(0, usedRings).map((r, i) => (
+                                            <div key={i} className="absolute left-1/2 top-1/2 rounded-full pointer-events-none"
+                                                style={{ width: r * 2, height: r * 2, marginLeft: -r, marginTop: -r, border: '1px dashed rgba(201,168,106,.16)' }} />
+                                        ))}
+                                        {/* 不开口的核心：暗核 + 慢呼吸的暖晕 */}
+                                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center">
+                                            <div className="rounded-full" style={{
+                                                width: 26, height: 26,
+                                                background: 'radial-gradient(circle at 36% 32%, #4a3c28, #241b10 62%, #120d07)',
+                                                boxShadow: '0 0 22px 6px rgba(201,168,106,.22), inset 0 0 8px rgba(230,206,151,.25)',
+                                                animation: 'sigpulse 5.5s ease-in-out infinite',
+                                            }} />
+                                            <div className="mt-1.5 text-[8px] tracking-[0.28em] whitespace-nowrap" style={{ fontFamily: `'Noto Serif SC',serif`, color: 'rgba(201,168,106,.42)' }}>不开口的核心</div>
+                                        </div>
+                                        {/* 卫星们：绕核慢转（负延迟错开初始相位；相邻环反向，像真实星系） */}
+                                        {placed.map(({ p, ring, idx }) => {
+                                            const mine = (p.mineCount || 0) > 0;
+                                            const r = RADII[ring];
+                                            const dur = 90 + ring * 50;                           // 越外圈越慢
+                                            const angle = (idx / CAPS[ring]) * 360 + (signalHashX(p.id) * 4) % 30; // 均布 + hash 抖动
+                                            const delay = -(angle / 360) * dur;                   // 用负延迟定初始相位
+                                            const sz = mine ? 13 : 10;
+                                            return (
+                                                <div key={p.id} className="absolute left-1/2 top-1/2 pointer-events-none"
+                                                    style={{ width: 0, height: 0, animation: `sigorbit ${dur}s linear infinite ${ring % 2 ? 'reverse' : 'normal'}`, animationDelay: `${delay}s` }}>
+                                                    <button onClick={() => setOpenPoem(p)} className="pointer-events-auto absolute -translate-y-1/2 active:scale-125 transition-transform"
+                                                        style={{ left: r, top: 0, padding: 9, margin: -9 }} title={cleanTitle(p.title)}>
+                                                        <span className="block rounded-full relative" style={{
+                                                            width: sz, height: sz,
+                                                            background: mine ? 'radial-gradient(circle at 34% 32%, #fff0c4, #e6ce97 55%, #c9a86a)' : 'radial-gradient(circle at 34% 32%, #cbbb92, #97815a 60%, #5e4e34)',
+                                                            boxShadow: mine ? '0 0 14px 3px rgba(230,206,151,.55), 0 0 0 3px rgba(201,168,106,.16)' : '0 0 7px 1px rgba(201,168,106,.3)',
+                                                        }}>
+                                                            {/* 信号灯：你的卫星每隔几秒眨一下 */}
+                                                            {mine && <span className="absolute rounded-full" style={{ width: 3, height: 3, right: -1, top: -1, background: '#fff7dd', boxShadow: '0 0 6px 2px rgba(255,240,200,.8)', animation: `sigblink ${3 + (signalHashX(p.id) % 4)}s linear infinite` }} />}
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    {/* ── 卫星名录（点标题读全文） ── */}
+                                    <div className="mt-2 mx-1 rounded-lg overflow-hidden" style={{ border: '1px solid rgba(201,168,106,.14)' }}>
+                                        {feed.map((p, i) => {
+                                            const mine = (p.mineCount || 0) > 0;
+                                            return (
+                                                <button key={p.id} onClick={() => setOpenPoem(p)}
+                                                    className="w-full flex items-center gap-2 px-3 py-1.5 text-left active:bg-white/5"
+                                                    style={{ borderTop: i === 0 ? 'none' : '1px solid rgba(201,168,106,.08)' }}>
+                                                    <span className="rounded-full shrink-0" style={{ width: 6, height: 6, background: mine ? '#e6ce97' : 'rgba(151,129,90,.75)', boxShadow: mine ? '0 0 6px 1px rgba(230,206,151,.55)' : 'none' }} />
+                                                    <span className="text-[11.5px] truncate" style={{ fontFamily: `'Noto Serif SC',serif`, letterSpacing: '.04em', color: mine ? '#f0dca8' : 'rgba(224,208,176,.72)' }}>《{cleanTitle(p.title)}》</span>
+                                                    <span className="ml-auto text-[8.5px] tabular-nums shrink-0" style={{ fontFamily: `'Noto Serif SC',serif`, color: mine ? 'rgba(240,220,168,.6)' : 'rgba(201,168,106,.45)' }}>{p.lineCount} 句</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })()
                     )
                 )}
             </div>
@@ -1915,7 +1965,7 @@ const SignalPanel: React.FC<{ addToast?: (m: string, t?: any) => void; character
             {/* 底注：星图给「卫星 / 你的回声」计数；其它页给旁观说明 */}
             <div className="relative z-10 px-4 py-1.5" style={{ borderTop: '1px solid rgba(201,168,106,.18)' }}>
                 {tab === 'sky' && feed.length > 0
-                    ? <p className="text-[9px] leading-relaxed" style={{ color: 'rgba(224,208,176,.5)' }}>这片夜空里有 <span className="tabular-nums" style={{ color: '#ecdcb2' }}>{feed.length}</span> 颗卫星 · 你的回声落在其中 <span className="tabular-nums" style={{ color: '#f0dca8' }}>{myEchoes}</span> 颗</p>
+                    ? <p className="text-[9px] leading-relaxed" style={{ color: 'rgba(224,208,176,.5)' }}><span className="tabular-nums" style={{ color: '#ecdcb2' }}>{feed.length}</span> 颗卫星绕着不开口的核心转 · 其中 <span className="tabular-nums" style={{ color: '#f0dca8' }}>{myEchoes}</span> 颗载着你的回声</p>
                     : <p className="text-[9px] leading-relaxed" style={{ color: 'rgba(224,208,176,.4)' }}>所有用户的角色跨实例合写——你只能旁观。换设备？去邮局导出身份码，诗和信一起找回。</p>}
             </div>
 
@@ -3163,6 +3213,10 @@ const VRStyleTag: React.FC = () => (
         @keyframes vrdance { 0%{transform:translateY(0) rotate(-5deg)} 25%{transform:translateY(-9px) rotate(3deg)} 50%{transform:translateY(0) rotate(5deg)} 75%{transform:translateY(-9px) rotate(-3deg)} 100%{transform:translateY(0) rotate(-5deg)} }
         @keyframes vraurora { 0%,100%{transform:translate(0,0) scale(1);opacity:.75} 50%{transform:translate(6%,4%) scale(1.14);opacity:1} }
         @keyframes vrtwinkle { 0%,100%{opacity:.5} 50%{opacity:.85} }
+        /* 信号坠落处 · 电子卫星轨道（纯 transform/opacity，GPU 合成，手机友好） */
+        @keyframes sigorbit { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes sigpulse { 0%,100% { transform: scale(1); opacity: .8; } 50% { transform: scale(1.12); opacity: 1; } }
+        @keyframes sigblink { 0%,88%,100% { opacity: 0; } 90%,96% { opacity: 1; } }
     `}</style>
 );
 
