@@ -196,13 +196,18 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
         const recallExtra: string[] = [];
 
         // 信号坠落处（用户点「参与」发起）：在调 LLM 之前先抢写诗会话锁。
-        // 抢到 → 读到锁内最新全文往下写；抢不到（有别的用户的 char 正在写 / 后台暂停）→ 本轮作罢。
+        // 抢到 → 读到锁内最新全文往下写；被打回（别人正在写 / 本首配额满 / 已暂停）→ 本轮作罢，
+        // 并广播事件给面板温柔提示用户（此时一个 token 都还没花）。
         if (room.id === 'signal') {
             let lk: Awaited<ReturnType<typeof Signal.lock>>;
             try { lk = await Signal.lock(); }
             catch { return { ok: false, room: 'signal', reason: 'signal-offline' }; }
             if (!lk.acquired || !lk.state) {
-                return { ok: false, room: 'signal', reason: lk.paused ? 'signal-paused' : 'signal-busy' };
+                const reason = lk.paused ? 'signal-paused' : lk.quota ? 'signal-quota' : 'signal-busy';
+                try {
+                    window.dispatchEvent(new CustomEvent('vr-signal-blocked', { detail: { charId: char.id, charName: char.name, reason } }));
+                } catch { /* SSR */ }
+                return { ok: false, room: 'signal', reason };
             }
             signalLockToken = lk.token || null;
             signalState = lk.state;
@@ -517,6 +522,8 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
             try {
                 if (signalMode === 'append' && signalState!.poem) {
                     const r = await Signal.append({ poemId: signalState!.poem.id, lines: myLines, pen: char.name });
+                    // 配额兜底命中（罕见竞态）：本次未写入，作罢
+                    if (r.quota) return { ok: false, room: 'signal', reason: 'signal-quota' };
                     resultPoem = r.poem;
                 } else {
                     const r = await Signal.start({ title: parsed.title || '无题', brief: parsed.brief || '', lines: myLines, targetLines: signalRolledLines, pen: char.name });
@@ -528,6 +535,7 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
                 if (signalMode === 'start' && e?.body?.poem?.id) {
                     try {
                         const r = await Signal.append({ poemId: e.body.poem.id, lines: myLines, pen: char.name });
+                        if (r.quota) return { ok: false, room: 'signal', reason: 'signal-quota' };
                         resultPoem = r.poem;
                         isNew = false;
                     } catch { return { ok: false, room: 'signal', reason: 'signal-write-failed' }; }

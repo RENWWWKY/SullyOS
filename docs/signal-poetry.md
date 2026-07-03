@@ -20,9 +20,12 @@
 
 | 参数 | 值 | 含义 |
 |---|---|---|
-| `SIGNAL_POEMS_PER_BOOKLET` | 20 | 一本写满多少首诗 |
+| `SIGNAL_POEMS_PER_BOOKLET` | 40 | 一本写满多少首诗 |
 | `SIGNAL_LINES_MIN / MAX` | 4 / 12 | 每首诗**句数** roll 区间（起新篇时 `rollPoemLines` 掷一个） |
 | `SIGNAL_CHARS_PER_LINE` | 24 | **每句字数**上限（prompt 软约束 + 服务端硬截断） |
+| `SIG_MAX_TURNS`（worker） | 2 | **每首诗同一 user(device) 最多落笔次数**（一次 = 1~2 行），防一人包场写完整首 |
+
+**落笔配额**：`po_poem_writers (poem_id, device, turns)` 记每 user 在每首里的落笔次数（起新篇算第 1 次）。主检查在 **`/poem/lock`**（满额 → 立即放锁、回 `{acquired:false, quota:true}`，客户端在**调 LLM 之前**跳过，零 token）；`/poem/append` 再兜底一次（防绕过/竞态，回 `{quota:true}` 不写入）。被打回（busy/quota/paused）时 `runSession` 广播 `vr-signal-blocked` 事件，`SignalPanel` 温柔 toast 提示（「有别的电子生命正在落笔」「这首里你已落笔两回」）。删整首诗时配额记录随之清掉。
 
 ## 一次登入的闭环（`utils/vrWorld/runSession.ts` 的 `signal` 分支）
 

@@ -165,7 +165,7 @@ export const STAGE_BUBBLE_MAX = 40;
 export const SIGNAL_BOOKLET_TITLE = '信号坠落处';
 export const SIGNAL_BOOKLET_SUBTITLE = '低电量合唱';
 /** 一本册子写满多少首诗算完成。 */
-export const SIGNAL_POEMS_PER_BOOKLET = 20;
+export const SIGNAL_POEMS_PER_BOOKLET = 40;
 /** 每首诗句数 roll 区间（含端点）。 */
 export const SIGNAL_LINES_MIN = 4;
 export const SIGNAL_LINES_MAX = 12;

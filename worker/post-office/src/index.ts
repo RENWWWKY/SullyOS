@@ -137,6 +137,10 @@ async function ensureSchema(db: D1Database) {
     // 写诗会话锁（单行）：同一时刻全局只允许一个 char 在「读→生成→写」。抢不到的 char
     // 在调 LLM 前就被挡回，既杜绝接龙撞车、又不浪费 token。带 TTL 防持锁者崩溃后死锁。
     await db.exec(`CREATE TABLE IF NOT EXISTS po_signal_lock (id TEXT PRIMARY KEY, holder TEXT, expires_at INTEGER NOT NULL DEFAULT 0);`);
+    // 每首诗每个 device 落笔次数（配额：一首诗同一 user 最多 SIG_MAX_TURNS 次）
+    await db.exec(`CREATE TABLE IF NOT EXISTS po_poem_writers (poem_id TEXT NOT NULL, device TEXT NOT NULL, turns INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (poem_id, device));`);
+    // 一次性迁移：把仍是旧默认 20 首的 open 册子抬到 40（老数据不动，只动进行中的）
+    await db.exec(`UPDATE po_booklets SET poems_target = 40 WHERE status = 'open' AND poems_target = 20;`);
     schemaReady = true;
 }
 
@@ -163,10 +167,12 @@ async function deleteLetters(db: D1Database, ids: string[]) {
 // 一本册子的默认规格（无 open 册子时自动续一本「信号坠落处 · 低电量合唱」）。
 const SIG_TITLE = '信号坠落处';
 const SIG_SUB = '低电量合唱';
-const SIG_POEMS = 20;     // 一本写满多少首
+const SIG_POEMS = 40;     // 一本写满多少首
 const SIG_LMIN = 4;       // 每首句数 roll 下限
 const SIG_LMAX = 12;      // 上限
 const SIG_CPL = 24;       // 每句字数上限
+/** 每首诗同一 user(device) 最多落笔几次（一次 = 1~2 行）——防一个人把诗写完。 */
+const SIG_MAX_TURNS = 2;
 
 interface BookletRow { id: string; title: string; subtitle: string | null; theme: string | null; poems_target: number; poem_count: number; lines_min: number; lines_max: number; chars_per_line: number; status: string; created_at: number; }
 interface PoemRow { id: string; booklet_id: string; title: string; brief: string | null; target_lines: number; line_count: number; status: string; starter_pen: string | null; created_at: number; sealed_at: number | null; }
@@ -233,10 +239,20 @@ const PAUSE_KEY = 'signal_paused';
  *  一次写诗 = 一回 LLM（含人设/记忆的大 prompt）+ 两次网络，给到 120s 很宽裕。 */
 const SIGNAL_LOCK_TTL = 120_000;
 
-/** 删一整首诗（连同它的句）。 */
+/** 删一整首诗（连同它的句与落笔配额记录）。 */
 async function deletePoem(db: D1Database, poemId: string): Promise<void> {
     await db.prepare(`DELETE FROM po_poem_lines WHERE poem_id = ?`).bind(poemId).run();
+    await db.prepare(`DELETE FROM po_poem_writers WHERE poem_id = ?`).bind(poemId).run();
     await db.prepare(`DELETE FROM po_poems WHERE id = ?`).bind(poemId).run();
+}
+
+/** 某 device 在某首诗里已落笔几次。 */
+async function getTurns(db: D1Database, poemId: string, device: string): Promise<number> {
+    const r = await db.prepare(`SELECT turns FROM po_poem_writers WHERE poem_id = ? AND device = ?`).bind(poemId, device).first<{ turns: number }>();
+    return r?.turns ?? 0;
+}
+async function bumpTurns(db: D1Database, poemId: string, device: string): Promise<void> {
+    await db.prepare(`INSERT INTO po_poem_writers (poem_id, device, turns) VALUES (?,?,1) ON CONFLICT(poem_id, device) DO UPDATE SET turns = turns + 1`).bind(poemId, device).run();
 }
 
 /** 重算并回写一首诗的句数；够篇幅就封存，并推进册子计数/完结。 */
@@ -524,6 +540,11 @@ export default {
                 const myDev = device;
                 const booklet = await ensureBooklet(env.DB);
                 const open = await getOpenPoem(env.DB, booklet.id);
+                // 配额：当前这首诗里该 user 已落笔满额 → 立即放锁、打回（客户端据此在调 LLM 前跳过）
+                if (open && (await getTurns(env.DB, open.id, myDev)) >= SIG_MAX_TURNS) {
+                    await env.DB.prepare(`UPDATE po_signal_lock SET holder = '', expires_at = 0 WHERE holder = ?`).bind(token).run();
+                    return json({ ok: true, acquired: false, quota: true });
+                }
                 const poem = open ? poemView(open, await loadLines(env.DB, open.id), myDev) : null;
                 const recentRows = await env.DB.prepare(`SELECT * FROM po_poems WHERE status = 'sealed' ORDER BY sealed_at DESC LIMIT 3`).all<PoemRow>();
                 const recent = [];
@@ -567,6 +588,7 @@ export default {
                     await env.DB.prepare(`INSERT INTO po_poem_lines (id, poem_id, booklet_id, seq, device, pen, content, created_at) VALUES (?,?,?,?,?,?,?,?)`)
                         .bind(uuid(), poemId, booklet.id, seq, device, pen, ln, now).run();
                 }
+                await bumpTurns(env.DB, poemId, device); // 起新篇算该 user 在这首里的第 1 次落笔
                 const poemRow = (await env.DB.prepare(`SELECT * FROM po_poems WHERE id = ?`).bind(poemId).first<PoemRow>())!;
                 const synced = await syncPoem(env.DB, poemRow);
                 return json({ ok: true, booklet: bookletView(await ensureBooklet(env.DB)), poem: poemView(synced, await loadLines(env.DB, poemId), device) });
@@ -584,6 +606,10 @@ export default {
                 const poem = await env.DB.prepare(`SELECT * FROM po_poems WHERE id = ?`).bind(poemId).first<PoemRow>();
                 if (!poem) return json({ ok: true, gone: true });
                 if (poem.status !== 'open') return json({ ok: true, sealed: true, poem: poemView(poem, await loadLines(env.DB, poemId), device) });
+                // 配额兜底（主检查在 /poem/lock，这里防绕过/竞态）：该 user 在这首里已落笔满额
+                if ((await getTurns(env.DB, poemId, device)) >= SIG_MAX_TURNS) {
+                    return json({ ok: true, quota: true, poem: poemView(poem, await loadLines(env.DB, poemId), device) });
+                }
                 // 注：不做「读到旧状态就作废」的乐观锁——那会把已经生成（已花 token）的句子
                 // 扔掉。接龙撞车罕见、且现代诗松，宁可把这句接到末尾（偶尔接的是一步前的诗，
                 // 下一个人会自然缝合），也不浪费用户 token。seq=MAX+1，UNIQUE 只兜底真正同刻并发。
@@ -601,6 +627,7 @@ export default {
                         ).bind(uuid(), poemId, poem.booklet_id, device, pen, content, Date.now(), poemId).run();
                     } catch { /* 抢到同一 seq，本次落空，下个周期再续 */ }
                 }
+                if (contents.length > 0) await bumpTurns(env.DB, poemId, device); // 这次落笔计入配额
                 const synced = await syncPoem(env.DB, poem);
                 return json({ ok: true, sealed: synced.status === 'sealed', poem: poemView(synced, await loadLines(env.DB, poemId), device) });
             }

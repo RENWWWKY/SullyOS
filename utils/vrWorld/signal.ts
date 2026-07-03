@@ -76,11 +76,11 @@ export const Signal = {
      * 抢不到（有别的 char 正在写 / 已暂停）返回 {acquired:false}。写诗路径用这个替代 current()，
      * 让抢不到的 char 在调 LLM 前就走人 —— 既串行化接龙、又不浪费 token。
      */
-    async lock(): Promise<{ acquired: boolean; token?: string; paused?: boolean; state?: SignalState }> {
-        const r = await call<{ acquired: boolean; token?: string; paused?: boolean; booklet?: SignalBooklet; poem?: SignalPoem | null; recent?: SignalPoem[] }>(
+    async lock(): Promise<{ acquired: boolean; token?: string; paused?: boolean; quota?: boolean; state?: SignalState }> {
+        const r = await call<{ acquired: boolean; token?: string; paused?: boolean; quota?: boolean; booklet?: SignalBooklet; poem?: SignalPoem | null; recent?: SignalPoem[] }>(
             '/poem/lock', { method: 'POST', body: JSON.stringify({ device: getDeviceId() }) },
         );
-        if (!r.acquired) return { acquired: false, paused: r.paused };
+        if (!r.acquired) return { acquired: false, paused: r.paused, quota: r.quota };
         return { acquired: true, token: r.token, state: { booklet: r.booklet!, poem: r.poem ?? null, recent: r.recent || [], paused: false } };
     },
 
@@ -102,8 +102,8 @@ export const Signal = {
         });
     },
 
-    /** 接龙：给指定诗续 1~2 行。返回最新态（sealed=true 表示写满了篇幅）。 */
-    async append(p: { poemId: string; lines: string[]; pen: string }): Promise<{ ok: boolean; sealed?: boolean; gone?: boolean; poem?: SignalPoem }> {
+    /** 接龙：给指定诗续 1~2 行。返回最新态（sealed=写满；quota=该 user 在这首里已落笔满额，本次未写入）。 */
+    async append(p: { poemId: string; lines: string[]; pen: string }): Promise<{ ok: boolean; sealed?: boolean; gone?: boolean; quota?: boolean; poem?: SignalPoem }> {
         return await call('/poem/append', {
             method: 'POST',
             // content 是给旧 worker 的兼容字段

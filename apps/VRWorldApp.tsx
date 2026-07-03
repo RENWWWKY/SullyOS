@@ -921,7 +921,7 @@ const SignalBanner: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
         return () => { alive = false; window.removeEventListener('vr-session-done', h); };
     }, []);
     const done = bk?.poemCount ?? 0;
-    const total = bk?.poemsTarget ?? 20;
+    const total = bk?.poemsTarget ?? 40;
     return (
         <button onClick={onOpen} className="relative w-full h-[132px] rounded-2xl overflow-hidden text-left active:scale-[0.985] transition-transform"
             style={{ boxShadow: '0 10px 34px rgba(0,0,0,.5)', border: '1px solid rgba(196,164,92,.35)' }}>
@@ -1788,6 +1788,19 @@ const SignalPanel: React.FC<{ addToast?: (m: string, t?: any) => void; character
         window.addEventListener('vr-session-done', h);
         return () => window.removeEventListener('vr-session-done', h);
     }, [load, loadFeed, mineOnly]);
+
+    // 参与被打回（调 LLM 之前，零 token）→ 温柔提示
+    useEffect(() => {
+        const h = (e: any) => {
+            const { charName, reason } = e?.detail || {};
+            const who = charName || '你的角色';
+            if (reason === 'signal-busy') addToast?.(`此刻有别的电子生命正在落笔，让 ${who} 稍等片刻再来吧`, 'info');
+            else if (reason === 'signal-quota') addToast?.(`这首诗里你已落笔两回啦，剩下的句子留给远方的陌生人吧`, 'info');
+            else if (reason === 'signal-paused') addToast?.('信号坠落处暂时歇笔中，晚些再来', 'info');
+        };
+        window.addEventListener('vr-signal-blocked', h);
+        return () => window.removeEventListener('vr-signal-blocked', h);
+    }, [addToast]);
 
     const bk = state?.booklet;
     const poem = state?.poem;
