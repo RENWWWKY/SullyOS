@@ -680,7 +680,10 @@ const WorldEditor: React.FC<{
     const labelCls = 'text-[10.5px] font-black text-stone-500 tracking-[0.12em] uppercase';
 
     return (
-        <div className="flex-1 overflow-y-auto no-scrollbar px-4 pb-28 pt-3 space-y-3">
+        <div
+            className="flex-1 overflow-y-auto no-scrollbar px-4 pt-3 space-y-3"
+            style={{ paddingBottom: 'calc(7rem + var(--safe-bottom, 0px))', boxSizing: 'border-box' }}
+        >
             <div className={sectionCls}>
                 <div className={labelCls}>世界名字</div>
                 <input className={inputCls} value={w.name} onChange={e => upd({ name: e.target.value })} placeholder="比如：栗子镇" />
@@ -920,7 +923,10 @@ const WorldEditor: React.FC<{
                 ⚠️ 每次「观测」大约会调用 <b>{Math.max(1, w.memberIds.length)}+1</b> 次 API（{w.memberIds.length} 个角色各 1 次 + NPC 世界引擎 1 次{w.timeMode === 'sim' ? '，每 20 天结卷再多 1 次' : ''}）。角色越多越费，请留意用量；建议在右上角 <b>齿轮</b> 给家园单独配一份<b>更轻量/便宜的 API</b>。
             </div>
 
-            <div className="fixed bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-[#f3eee3] via-[#f3eee3]/95 to-transparent flex gap-2.5 max-w-md mx-auto">
+            <div
+                className="fixed bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-[#f3eee3] via-[#f3eee3]/95 to-transparent flex gap-2.5 max-w-md mx-auto"
+                style={{ paddingBottom: 'calc(0.75rem + var(--safe-bottom, 0px))' }}
+            >
                 <button onClick={onCancel} className="flex-1 py-2.5 rounded-2xl bg-white border border-stone-200 text-stone-600 text-[13px] font-bold shadow-sm">取消</button>
                 <button
                     onClick={() => {
@@ -1142,7 +1148,8 @@ const WorldView: React.FC<{
     onEdit: () => void;
     onWorldUpdated: () => void;
     onBack?: () => void;
-}> = ({ world, characters, onEdit, onWorldUpdated, onBack }) => {
+    topSafe?: boolean;
+}> = ({ world, characters, onEdit, onWorldUpdated, onBack, topSafe }) => {
     const { addToast } = useOS();
     const [episodes, setEpisodes] = useState<WorldEpisode[]>([]);
     const [progress, setProgress] = useState<{ done: number; total: number; charName?: string } | null>(
@@ -1381,7 +1388,15 @@ const WorldView: React.FC<{
     };
 
     return (
-        <div className="flex-1 overflow-y-auto no-scrollbar pb-24" style={{ background: t.pageBg }}>
+        <div
+            className="flex-1 overflow-y-auto no-scrollbar"
+            style={{
+                background: t.pageBg,
+                paddingTop: topSafe ? 'max(3rem, var(--safe-top, 0px))' : undefined,
+                paddingBottom: 'calc(6rem + var(--safe-bottom, 0px))',
+                boxSizing: 'border-box',
+            }}
+        >
             {/* 伏笔删除确认（自定义弹窗，非原生） */}
             {pendingSeed && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 backdrop-blur-sm p-6" onClick={() => setPendingSeed(null)}>
@@ -1906,7 +1921,7 @@ const WorldHomeApp: React.FC<{ embedded?: boolean; onFullscreen?: (full: boolean
             {/* 顶栏：内嵌进「小小窝」时，列表页只留齿轮/新建；进世界（正式开始玩）整条隐去做全屏，
                 返回靠世界视图里的浮动返回键。 */}
             {!(embedded && view === 'world') && (
-            <div className="shrink-0 sticky top-0 z-10" style={{ background: headerBg, paddingTop: embedded ? undefined : 'var(--safe-top)' }}>
+            <div className="shrink-0 sticky top-0 z-10" style={{ background: headerBg, paddingTop: embedded && view === 'list' ? undefined : 'var(--safe-top)' }}>
             <div className={embedded ? `${view === 'list' ? 'h-12' : 'h-20'} flex items-end pb-3 px-4` : 'flex items-center px-4 py-3'}>
                 <div className="flex items-center gap-2 w-full">
                     {!(embedded && view === 'list') && (
@@ -1945,7 +1960,10 @@ const WorldHomeApp: React.FC<{ embedded?: boolean; onFullscreen?: (full: boolean
             )}
 
             {view === 'list' && (
-                <div className="flex-1 overflow-y-auto no-scrollbar px-4 pb-24 pt-1 space-y-3">
+                <div
+                    className="flex-1 overflow-y-auto no-scrollbar px-4 pt-1 space-y-3"
+                    style={{ paddingBottom: 'calc(6rem + var(--safe-bottom, 0px))', boxSizing: 'border-box' }}
+                >
                     {/* 游戏封面横幅（淡紫梦幻：月亮 + 云霭 + 星点） */}
                     <div className="relative rounded-3xl overflow-hidden p-5 shadow-[0_10px_30px_rgba(120,100,180,.25)]" style={{ background: 'linear-gradient(150deg,#8e83c4 0%,#a99fd6 52%,#c3c9ea 100%)' }}>
                         <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: starsBg, animation: 'wh-twinkle 4s ease-in-out infinite' }} />
@@ -2021,6 +2039,7 @@ const WorldHomeApp: React.FC<{ embedded?: boolean; onFullscreen?: (full: boolean
                     onEdit={() => { setDraft(active); setView('edit'); }}
                     onWorldUpdated={reload}
                     onBack={goBack}
+                    topSafe={!!embedded}
                 />
             )}
         </div>

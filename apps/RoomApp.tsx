@@ -1148,8 +1148,8 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
                 <div className="absolute inset-0 pointer-events-none opacity-70" style={{ backgroundImage: th.stars }} />
 
                 {/* 顶部：标题 + Tab（家园正式开始玩——进世界/编辑——时整块隐去，全屏沉浸） */}
-                <div className={`relative z-10 px-6 shrink-0 ${homeTab === 'worldHome' && worldHomeFull ? 'hidden' : ''}`} style={{ paddingTop: 'max(3rem, var(--safe-top))' }}>
-                    <button onClick={closeApp} className={`absolute left-4 p-2 rounded-full active:scale-90 transition-all ${th.back}`} style={{ top: 'max(3rem, var(--safe-top))' }}>
+                <div className={`relative z-10 px-6 shrink-0 ${homeTab === 'worldHome' && worldHomeFull ? 'hidden' : ''}`} style={{ paddingTop: 'max(3rem, var(--safe-top, 0px))' }}>
+                    <button onClick={closeApp} className={`absolute left-4 p-2 rounded-full active:scale-90 transition-all ${th.back}`} style={{ top: 'max(3rem, var(--safe-top, 0px))' }}>
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     </button>
                     <div className="text-center">
@@ -1238,7 +1238,10 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
                         </div>
 
                         {/* 底部装饰 */}
-                        <div className={`relative z-10 shrink-0 pb-4 flex items-center justify-center gap-2.5 text-[8.5px] tracking-[0.35em] font-bold ${th.footer}`}>
+                        <div
+                            className={`relative z-10 shrink-0 flex items-center justify-center gap-2.5 text-[8.5px] tracking-[0.35em] font-bold ${th.footer}`}
+                            style={{ paddingBottom: 'calc(1rem + var(--safe-bottom, 0px))' }}
+                        >
                             <span>EXPLORE</span><span className={th.dot}>◆</span><span>CONNECT</span><span className={th.dot}>◆</span><span>DISCOVER</span>
                         </div>
                     </>
@@ -1359,7 +1362,7 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
             </button>
             {showSidebar && <div className="absolute inset-0 z-[290] bg-black/20" onClick={() => setShowSidebar(false)}></div>}
             <div className={`absolute right-0 top-0 bottom-0 w-3/4 max-w-sm bg-white shadow-2xl z-[300] transition-transform duration-300 ease-out flex flex-col ${showSidebar ? 'translate-x-0' : 'translate-x-full'}`}>
-                <div className="p-6 pb-2 border-b border-slate-100 flex justify-between items-center bg-slate-50" style={{ paddingTop: 'max(1.5rem, var(--safe-top))' }}>
+                <div className="p-6 pb-2 border-b border-slate-100 flex justify-between items-center bg-slate-50" style={{ paddingTop: 'max(1.5rem, var(--safe-top, 0px))' }}>
                     <h3 className="text-lg font-bold text-slate-700 tracking-tight">生活碎片</h3>
                     <button onClick={() => setShowSidebar(false)} className="p-2 -mr-2 text-slate-400 hover:text-slate-600"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></button>
                 </div>
@@ -1370,7 +1373,7 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
                 </div>
                 
                 {/* Fixed: Add no-scrollbar class to hide scrollbar */}
-                <div className="flex-1 overflow-y-auto p-6 bg-[#fcfcfc] no-scrollbar">
+                <div className="flex-1 overflow-y-auto p-6 bg-[#fcfcfc] no-scrollbar" style={{ paddingBottom: 'calc(1.5rem + var(--safe-bottom, 0px))' }}>
                     {activePanel === 'todo' && (
                         <div className="space-y-6">
                             <div className="flex items-center justify-between"><span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{todaysTodo?.date || 'Today'}</span><span className="text-[10px] bg-slate-100 px-2 py-1 rounded text-slate-500">完成度: {todaysTodo ? Math.round((todaysTodo.items.filter(i=>i.done).length / todaysTodo.items.length)*100) : 0}%</span></div>
@@ -1425,7 +1428,7 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
             </div>
 
             {/* UI Overlay */}
-            <div className="absolute top-0 w-full px-4 pb-2 flex justify-between z-30 pointer-events-none" style={{ paddingTop: 'max(3rem, var(--safe-top))' }}>
+            <div className="absolute top-0 w-full px-4 pb-2 flex justify-between z-30 pointer-events-none" style={{ paddingTop: 'max(3rem, var(--safe-top, 0px))' }}>
                 <button onClick={() => setViewState('select')} className="bg-white/90 p-2 rounded-full shadow-md pointer-events-auto active:scale-90 transition-transform text-slate-600"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg></button>
                 <div className="flex gap-2 pointer-events-auto">
                     {/* REFRESH BUTTON — 仅在今天已生成时露出（未生成时走下方「更新这一天」横幅） */}
@@ -1439,11 +1442,11 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
             </div>
 
             {/* Observation Card (Bottom) */}
-            {observationText && mode === 'view' && <div className="absolute bottom-6 left-4 right-4 bg-white p-5 rounded-2xl shadow-2xl border border-slate-100 z-[150] animate-slide-up"><div className="flex justify-between items-start mb-2"><span className="text-xs font-bold text-blue-500 uppercase tracking-widest">OBSERVATION</span><button onClick={() => setObservationText('')} className="text-slate-400 hover:text-slate-600">×</button></div><p className="text-sm text-slate-700 leading-relaxed font-medium text-justify">{observationText}</p></div>}
+            {observationText && mode === 'view' && <div className="absolute left-4 right-4 bg-white p-5 rounded-2xl shadow-2xl border border-slate-100 z-[150] animate-slide-up" style={{ bottom: 'calc(1.5rem + var(--safe-bottom, 0px))' }}><div className="flex justify-between items-start mb-2"><span className="text-xs font-bold text-blue-500 uppercase tracking-widest">OBSERVATION</span><button onClick={() => setObservationText('')} className="text-slate-400 hover:text-slate-600">×</button></div><p className="text-sm text-slate-700 leading-relaxed font-medium text-justify">{observationText}</p></div>}
 
             {/* 「更新这一天」横幅 —— 今天尚未生成时露出（进门不再阻塞，由用户主动触发） */}
             {mode === 'view' && !todayGenerated && !isInitializing && !observationText && (
-                <div className="absolute bottom-6 left-4 right-4 bg-white p-4 rounded-2xl shadow-2xl border border-slate-100 z-[150] animate-slide-up flex items-center gap-3">
+                <div className="absolute left-4 right-4 bg-white p-4 rounded-2xl shadow-2xl border border-slate-100 z-[150] animate-slide-up flex items-center gap-3" style={{ bottom: 'calc(1.5rem + var(--safe-bottom, 0px))' }}>
                     <div className="w-10 h-10 rounded-xl bg-primary-light flex items-center justify-center shrink-0">
                         <Door size={22} className="text-primary" />
                     </div>
@@ -1459,8 +1462,24 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
 
             {/* Edit Mode Toolbar - Collapsible */}
             {mode === 'edit' && (
-                <div className={`absolute bottom-0 w-full bg-white border-t border-slate-200 z-[150] transition-transform duration-300 flex flex-col ${isToolbarCollapsed ? 'translate-y-[calc(100%-2.5rem)]' : ''}`} style={{ maxHeight: isToolbarCollapsed ? 'auto' : '45vh' }}>
-                    <div className="h-10 w-full flex items-center justify-center cursor-pointer bg-white active:bg-slate-50 border-b border-slate-100" onClick={() => setIsToolbarCollapsed(!isToolbarCollapsed)}><div className="w-10 h-1 bg-slate-200 rounded-full"></div></div>
+                <div
+                    className="absolute bottom-0 w-full bg-white border-t border-slate-200 z-[150] transition-transform duration-300 flex flex-col"
+                    style={{
+                        paddingBottom: 'var(--safe-bottom, 0px)',
+                        maxHeight: isToolbarCollapsed ? 'auto' : '45vh',
+                        transform: isToolbarCollapsed ? 'translateY(calc(100% - 2.5rem - var(--safe-bottom, 0px)))' : undefined,
+                        boxSizing: 'border-box',
+                    }}
+                >
+                    <div
+                        className="w-full flex items-center justify-center cursor-pointer bg-white active:bg-slate-50 border-b border-slate-100"
+                        style={{
+                            height: isToolbarCollapsed ? 'calc(2.5rem + var(--safe-bottom, 0px))' : '2.5rem',
+                            paddingBottom: isToolbarCollapsed ? 'var(--safe-bottom, 0px)' : undefined,
+                            boxSizing: 'border-box',
+                        }}
+                        onClick={() => setIsToolbarCollapsed(!isToolbarCollapsed)}
+                    ><div className="w-10 h-1 bg-slate-200 rounded-full"></div></div>
                     <div className="p-4 overflow-y-auto flex-1">
                         {selectedItemId ? (
                             <div className="flex flex-col gap-3">
