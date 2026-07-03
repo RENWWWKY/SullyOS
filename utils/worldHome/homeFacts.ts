@@ -10,7 +10,7 @@
  * sim 番外世界坚决不参与（已拍板：不进记忆、不进日程、不进小屋）。
  */
 
-import { CharacterProfile, WorldProfile } from '../../types';
+import { CharacterProfile, DailySchedule, WorldProfile } from '../../types';
 import { DB } from '../db';
 
 /** 与 engine.ts entersMemory 同口径的「real 家园」判定。 */
@@ -40,15 +40,6 @@ export async function resolveHomeWorld(char: CharacterProfile): Promise<WorldPro
     return realHomes.length === 1 ? realHomes[0] : null;
 }
 
-/** 把 residentIds 解析成名字（成员查角色表，NPC 查世界的 npcs）。 */
-async function resolveResidentNames(world: WorldProfile, ids: string[]): Promise<string[]> {
-    if (ids.length === 0) return [];
-    const chars = await DB.getAllCharacters().catch(() => [] as CharacterProfile[]);
-    return ids
-        .map(id => chars.find(c => c.id === id)?.name || world.npcs?.find(n => n.id === id)?.name || '')
-        .filter(Boolean);
-}
-
 /**
  * 构建喂给日程生成 prompt 的「主家园事实」块。
  * 无主家园（不在任何 real 世界 / 多个 real 世界含糊）时返回空串，日程退回现状行为。
@@ -68,13 +59,40 @@ export async function buildHomeWorldScheduleBlock(char: CharacterProfile): Promi
 
     // 住所与同住人（不在任何小屋 = 独居，见 WorldHouse 注释）
     const house = (world.houses || []).find(h => (h.residentIds || []).includes(char.id));
+    const roommateChars: CharacterProfile[] = [];
     if (house) {
-        const roommates = await resolveResidentNames(world, house.residentIds.filter(id => id !== char.id));
-        lines.push(roommates.length > 0
-            ? `你住在「${house.name}」，和 ${roommates.join('、')} 同住。`
+        const roommateIds = house.residentIds.filter(id => id !== char.id);
+        const chars = await DB.getAllCharacters().catch(() => [] as CharacterProfile[]);
+        const roommateNames = roommateIds
+            .map(id => chars.find(c => c.id === id)?.name || world.npcs?.find(n => n.id === id)?.name || '')
+            .filter(Boolean);
+        lines.push(roommateNames.length > 0
+            ? `你住在「${house.name}」，和 ${roommateNames.join('、')} 同住。`
             : `你住在「${house.name}」，目前一个人住。`);
+        // 只有真实角色才有日程；NPC 有名字但不参与咬合
+        for (const id of roommateIds) {
+            const c = chars.find(x => x.id === id);
+            if (c) roommateChars.push(c);
+        }
     } else {
         lines.push(`你在这个世界里独居，有自己的住处。`);
+    }
+
+    // 对齐轴③（同住人日程咬合）：捞今天**已生成**的同住人日程，后生成的向先生成的看齐。
+    // 锚是涌现的——当天谁先生成谁是锚，这里只管"看齐所有已生成的"。
+    // 注意读的是原始全天 slots（整天蓝图），不是 buildScheduleInjection 的"此刻快照"。
+    const today = new Date().toISOString().split('T')[0];
+    const roommateBlocks: string[] = [];
+    for (const rc of roommateChars) {
+        const rs: DailySchedule | null = await DB.getDailySchedule(rc.id, today).catch(() => null);
+        if (!rs?.slots?.length) continue;
+        const slotLines = rs.slots.map(s =>
+            `  - ${s.startTime} ${s.activity}${s.location ? `（${s.location}）` : ''}`);
+        roommateBlocks.push(`「${rc.name}」今天的安排：\n${slotLines.join('\n')}`);
+    }
+    if (roommateBlocks.length > 0) {
+        lines.push(`同住人今天已定的日程（你们住在一起，你的日程要接得上：共同活动要呼应、同一时段不要互相矛盾——ta 说晚上和你做饭，你就别安排独自健身）：`);
+        lines.push(...roommateBlocks);
     }
 
     // 家园近况：最近 2 轮的机械梗概，各截 200 字

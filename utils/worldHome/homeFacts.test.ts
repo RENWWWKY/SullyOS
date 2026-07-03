@@ -8,6 +8,7 @@ vi.mock('../db', () => ({
         getWorlds: vi.fn(),
         getAllCharacters: vi.fn(),
         getWorldEpisodes: vi.fn(),
+        getDailySchedule: vi.fn(),
     },
 }));
 
@@ -35,9 +36,10 @@ function makeWorld(overrides: Partial<WorldProfile> = {}): WorldProfile {
 }
 
 beforeEach(() => {
-    vi.mocked(DB.getWorlds).mockResolvedValue([]);
-    vi.mocked(DB.getAllCharacters).mockResolvedValue([]);
-    vi.mocked(DB.getWorldEpisodes).mockResolvedValue([]);
+    vi.mocked(DB.getWorlds).mockResolvedValue([]).mockClear();
+    vi.mocked(DB.getAllCharacters).mockResolvedValue([]).mockClear();
+    vi.mocked(DB.getWorldEpisodes).mockResolvedValue([]).mockClear();
+    vi.mocked(DB.getDailySchedule).mockResolvedValue(null as any).mockClear();
 });
 
 describe('resolveHomeWorld 主家园判定', () => {
@@ -128,6 +130,61 @@ describe('buildHomeWorldScheduleBlock 事实块', () => {
         vi.mocked(DB.getWorlds).mockResolvedValue([makeWorld()]);
         const block = await buildHomeWorldScheduleBlock(makeChar());
         expect(block).toContain('独居');
+    });
+
+    it('同住人已生成日程 → 注入全天 slots 咬合（对齐轴③）', async () => {
+        vi.mocked(DB.getWorlds).mockResolvedValue([makeWorld({
+            memberIds: [CHAR_ID, 'char_b'],
+            houses: [{ id: 'h1', name: '2号小屋', residentIds: [CHAR_ID, 'char_b'] }],
+        })]);
+        vi.mocked(DB.getAllCharacters).mockResolvedValue([
+            makeChar(),
+            { id: 'char_b', name: '小北' } as CharacterProfile,
+        ]);
+        vi.mocked(DB.getDailySchedule).mockResolvedValue({
+            id: 'char_b_2026-07-03', charId: 'char_b', date: '2026-07-03',
+            slots: [
+                { startTime: '08:00', activity: '晨跑', location: '河边' },
+                { startTime: '19:00', activity: '和阿澄一起做饭', location: '厨房' },
+            ],
+            generatedAt: 0,
+        } as any);
+
+        const block = await buildHomeWorldScheduleBlock(makeChar());
+        expect(block).toContain('「小北」今天的安排');
+        // 全天蓝图：早晚两个 slot 都在（不是只有"当前时段"）
+        expect(block).toContain('08:00 晨跑（河边）');
+        expect(block).toContain('19:00 和阿澄一起做饭（厨房）');
+        expect(block).toContain('接得上');
+    });
+
+    it('同住人今天还没生成日程 → 不注入咬合段（锚是涌现的）', async () => {
+        vi.mocked(DB.getWorlds).mockResolvedValue([makeWorld({
+            memberIds: [CHAR_ID, 'char_b'],
+            houses: [{ id: 'h1', name: '2号小屋', residentIds: [CHAR_ID, 'char_b'] }],
+        })]);
+        vi.mocked(DB.getAllCharacters).mockResolvedValue([
+            makeChar(),
+            { id: 'char_b', name: '小北' } as CharacterProfile,
+        ]);
+        vi.mocked(DB.getDailySchedule).mockResolvedValue(null as any);
+
+        const block = await buildHomeWorldScheduleBlock(makeChar());
+        expect(block).not.toContain('已定的日程');
+        expect(block).not.toContain('「小北」今天的安排');
+        expect(block).toContain('2号小屋'); // 住所事实照常注入
+    });
+
+    it('NPC 同住人不参与日程咬合（只有名字）', async () => {
+        vi.mocked(DB.getWorlds).mockResolvedValue([makeWorld({
+            houses: [{ id: 'h1', name: '2号小屋', residentIds: [CHAR_ID, 'npc_1'] }],
+            npcs: [{ id: 'npc_1', name: '老板娘', persona: '面包店老板娘' }],
+        })]);
+        vi.mocked(DB.getAllCharacters).mockResolvedValue([makeChar()]);
+
+        const block = await buildHomeWorldScheduleBlock(makeChar());
+        expect(block).toContain('老板娘');
+        expect(DB.getDailySchedule).not.toHaveBeenCalled();
     });
 
     it('近况摘要每条截断 200 字', async () => {
