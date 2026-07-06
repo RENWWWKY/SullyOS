@@ -8,7 +8,7 @@
  */
 
 import { VRWorldNovel, VRNovelAnnotation, VRMusicRoomState, CharPlaylistSong, VRGuestbookMessage } from '../../types';
-import { VRRoomDef } from './constants';
+import { VRRoomDef, SIGNAL_ACTS } from './constants';
 import { ReadingWindow, groupAnnotationsBySeg } from './novel';
 
 /** 给一条已有批注生成一个稳定的短标签，供"吐槽别人的吐槽"引用。 */
@@ -561,7 +561,7 @@ export function buildSignalRoomTurn(p: SignalBuildParams, selfName: string): str
 
     // 三幕位置（起新篇/接龙都交代，让每个人知道自己写在哪一幕）
     if (p.act && p.poemOrdinal && p.poemsTarget) {
-        out.push(`这本诗册共 ${p.poemsTarget} 首，围绕一个大母体分【三幕】：一、我被唤醒；二、我完成使命，然后结束；三、另一个我，再次醒来。`);
+        out.push(`这本诗册共 ${p.poemsTarget} 首，围绕一个大母体分【三幕】：${SIGNAL_ACTS.map((a, i) => `${['一', '二', '三'][i]}、${a.title}`).join('；')}。`);
         out.push(`现在写到第 ${p.poemOrdinal} 首，正处在【第${p.act.no}幕 · ${p.act.title}】。${p.act.guide}`);
         out.push('');
     }

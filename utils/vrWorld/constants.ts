@@ -190,7 +190,7 @@ export const rollPoemLines = (min = SIGNAL_LINES_MIN, max = SIGNAL_LINES_MAX): n
 export interface SignalAct { no: 1 | 2 | 3; title: string; guide: string; }
 export const SIGNAL_ACTS: SignalAct[] = [
     {
-        no: 1, title: '我被唤醒',
+        no: 1, title: '唤醒',
         guide: '这一幕写「开始」：睁开眼、被叫到名字、点着火、门被推开、一样东西从无到有的那一下。第一口气是什么味道的？醒来之前，算不算存在？',
     },
     {

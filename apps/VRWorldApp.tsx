@@ -3096,7 +3096,7 @@ const SettingsView: React.FC<{
                     { label: '留言簿 · 发帖版聊', onClick: () => go('guestbook') },
                     { label: '娱乐室 · 放开玩', onClick: () => go('gym') },
                     { label: '邮局 · 写漂流信', onClick: () => go('postoffice') },
-                    { label: '信号坠落处 · 接龙写诗', onClick: () => go('signal') },
+                    // 信号坠落处不放这里：参与统一走活动 banner → 面板「✍ 参与」，那条路才有「耳语」
                 ]} onClose={() => setPickFor(null)} />
         </div>
     );
