@@ -369,8 +369,8 @@ const clockPhaseOf = (h: number): ClockPhase => (h >= 23 || h < 5) ? 'late' : h 
 const LiveBoard = React.memo<{
     customImg: string; fg: string; avatar?: string; night: boolean;
     hh: string; mm: string; phase: ClockPhase;
-    onClock: () => void; onUpload: () => void; onClear: () => void; onPickColor: () => void;
-}>(({ customImg, fg, avatar, night, hh, mm, phase, onClock, onUpload, onClear, onPickColor }) => {
+    onClock: () => void;
+}>(({ customImg, fg, avatar, night, hh, mm, phase, onClock }) => {
     const darkFace = phase === 'night' || phase === 'late';
     // 排版层文字色：有自定义图 → 用户选的颜色（默认白）+ 阴影保证任何图上可读；
     // 默认渐变底偏浅 → 走主题深字，无阴影
@@ -422,28 +422,6 @@ const LiveBoard = React.memo<{
                         <span className="text-[19px] font-bold tabular-nums" style={{ fontFamily: FONT_PX, color: inkFg, textShadow: inkShadow, letterSpacing: '0.04em' }}>{hh}:{mm}</span>
                     </div>
                     {phase === 'late' && <div className="text-[7.5px] mt-[4px] tracking-[0.22em]" style={{ fontFamily: FONT_CN, color: inkSub, textShadow: inkShadow }}>夜深啦</div>}
-                </button>
-            </div>
-            {/* 右下角微钮：调字色 ○（仅有图时）/ 恢复默认 × / 换图 ✎ —— 半透明，不抢戏 */}
-            <div className="absolute bottom-1 right-1.5 flex gap-1">
-                {customImg && (
-                    <>
-                        <button onClick={onPickColor} aria-label="文字颜色"
-                            className="w-[17px] h-[17px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
-                            style={{ background: 'rgba(255,255,255,0.6)' }}>
-                            <span className="w-2 h-2 rounded-full" style={{ background: fg, boxShadow: '0 0 0 1px rgba(0,0,0,0.25)' }} />
-                        </button>
-                        <button onClick={onClear} aria-label="恢复默认看板"
-                            className="w-[17px] h-[17px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
-                            style={{ background: 'rgba(255,255,255,0.6)', color: '#5a5470' }}>
-                            <svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" /></svg>
-                        </button>
-                    </>
-                )}
-                <button onClick={onUpload} aria-label="上传看板图"
-                    className="w-[17px] h-[17px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
-                    style={{ background: 'rgba(255,255,255,0.6)', color: '#5a5470' }}>
-                    <svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                 </button>
             </div>
         </div>
@@ -1203,6 +1181,34 @@ const TamagotchiHome: React.FC = () => {
                         <p className="text-[8.5px] leading-relaxed mt-2 text-center" style={{ color: PAL.fade, fontFamily: FONT_CN }}>
                             从 ta 的墙纸 / 地板 / 立绘里找主色，保留当前明暗基调
                         </p>
+                        {/* ── 看板 Banner：换图 / 字色 / 恢复默认（铅笔从 banner 上收进来了） ── */}
+                        <div className="h-px my-2.5" style={{ background: 'var(--tg-frame-a22)' }} />
+                        <div className="flex items-center gap-1.5 mb-2">
+                            <span className="text-[11px] font-bold tracking-wide" style={{ fontFamily: FONT_CN, color: PAL.grape }}>看板</span>
+                            <span className="text-[6.5px] font-bold tracking-[0.28em]" style={{ fontFamily: FONT_PX, color: PAL.fade }}>BANNER</span>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => boardInputRef.current?.click()}
+                                className="flex-1 py-2 rounded-xl text-[10.5px] font-bold active:scale-95 transition-transform flex items-center justify-center gap-1.5"
+                                style={{ background: PAL.card, border: `1.5px solid ${PAL.frameSoft}`, color: PAL.grape, fontFamily: FONT_CN }}>
+                                <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                {boardImg ? '换一张图' : '上传横图'}
+                            </button>
+                            {boardImg && (
+                                <>
+                                    <button onClick={() => boardColorRef.current?.click()} aria-label="看板文字颜色"
+                                        className="w-[2.4rem] py-2 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
+                                        style={{ background: PAL.card, border: `1.5px solid ${PAL.frameSoft}` }}>
+                                        <span className="w-3.5 h-3.5 rounded-full" style={{ background: boardFg, boxShadow: '0 0 0 1.5px var(--tg-frame-a30)' }} />
+                                    </button>
+                                    <button onClick={clearBoardImg} aria-label="恢复默认看板"
+                                        className="w-[2.4rem] py-2 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
+                                        style={{ background: PAL.card, border: `1.5px solid ${PAL.frameSoft}`, color: PAL.fade }}>
+                                        <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" /></svg>
+                                    </button>
+                                </>
+                            )}
+                        </div>
                     </div>
                 </>
             )}
@@ -1220,10 +1226,7 @@ const TamagotchiHome: React.FC = () => {
                     {/* 直播看板（一整张 banner：图/渐变底 + 营业中/电子时间排版层），下面挂日程牌和 ✦ 挂饰 */}
                     <LiveBoard customImg={boardImg} fg={boardFg} avatar={char.avatar} night={night}
                         hh={hh} mm={mm} phase={clockPhaseOf(virtualTime.hours)}
-                        onClock={() => openApp(AppID.Schedule)}
-                        onUpload={() => boardInputRef.current?.click()}
-                        onClear={clearBoardImg}
-                        onPickColor={() => boardColorRef.current?.click()} />
+                        onClock={() => openApp(AppID.Schedule)} />
                     <input type="file" ref={boardInputRef} className="hidden" accept="image/*" onChange={onBoardFile} />
                     <input type="color" ref={boardColorRef} className="hidden" value={boardFg} onChange={onBoardColor} />
                     <CeilingCharms />
