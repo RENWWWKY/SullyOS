@@ -21,8 +21,11 @@ import { isDevDebugAvailable, subscribeDevDebugAvailability } from '../../utils/
 // 角色在里面呼吸、游荡、被戳会念聊天里说过的话；底部 CARE/TALK/HOME/ALBUM/SETTINGS 五键 dock。
 // 视觉基调：梦幻手游风——渐变描边、四角宝石、满屏星芒、发光经验条、扁平手绘贴纸键。
 //
-// 主色调可换：整套配色由一个色相 hue 推导（CSS 变量，见 makeVars），右上 🎨 面板
-// 可选预设色，或从小窝的墙纸/地板/立绘里自动提取主色（canvas 采样色相直方图）。
+// 界面风格可换（🎨 面板）：星云紫/奶油白/暗夜黑金/薄荷青/粉樱梦/深海蓝 六方案 +
+// 「提取小窝主色」——由 makeVars 按 {hue, dark, gold, mute} 推导成 CSS 变量，
+// 明暗两套渲染规则（暗色=深烟卡+浅线+亮字；亮色=奶白卡+深线+深字；gold 统一金线）。
+// 注意：日程木牌/纸卷/地板手机弹窗/气泡这些「世界里的道具」固定用 PAPER 纸质配色，
+// 不跟随明暗——木头就是木头、纸就是纸，暗色主题下它们也不该变黑。
 //
 // 性能红线（此文件的宪法）：
 //   · 零常驻 JS 动画 —— 循环动效全部 CSS keyframes 且只碰 transform/opacity；
@@ -32,21 +35,33 @@ import { isDevDebugAvailable, subscribeDevDebugAvailability } from '../../utils/
 //     换主色只改根节点 CSS 变量，子组件零 reconcile。
 //   · 图片全走 TokenImg / useBlobRefUrl（blobref 令牌自动解析回收）+ lazy。
 
-// —— 调色板：全部指向 CSS 变量（根节点按 hue 生成），cream/gold/night 为固定锚色 ——
+// —— 调色板：全部指向 CSS 变量（根节点按方案生成），cream/gold/night 为固定锚色 ——
 const PAL = {
     frame: 'var(--tg-frame)',
     frameSoft: 'var(--tg-frame-soft)',
     cream: '#fdf9f2',
+    card: 'var(--tg-card)',          // UI 卡面（随明暗）
+    cardHi: 'var(--tg-card-strong)',
     ink: 'var(--tg-ink)',
     grape: 'var(--tg-grape)',
     fade: 'var(--tg-fade)',
     pink: 'var(--tg-pink)',
     hot: 'var(--tg-hot)',
     peri: 'var(--tg-peri)',
-    gold: '#f7d180',
+    gold: '#d9bd85',
     heart: 'var(--tg-heart)',
     heartDeep: 'var(--tg-heart-deep)',
     night: '#3a3560',
+};
+// —— 纸质锚色：世界里的道具（木牌/纸卷/手机弹窗/气泡）专用，不跟随明暗方案 ——
+const PAPER = {
+    line: '#b3a3e0',
+    lineSoft: 'rgba(179,163,224,0.45)',
+    ink: '#7a6cb8',
+    hi: '#6b5b9e',
+    dim: '#a99bd4',
+    cream: '#fdf9f2',
+    hot: '#ea76b4',
 };
 // 渐变描边（华丽框的灵魂）：伴色 → 邻色 → 主色浅调
 const RIM = `linear-gradient(135deg, ${PAL.pink}, ${PAL.peri} 55%, var(--tg-rim3))`;
@@ -60,43 +75,96 @@ const hsl = (h: number, s: number, l: number, a?: number) => {
     const hh = ((h % 360) + 360) % 360;
     return a === undefined ? `hsl(${hh}, ${s}%, ${l}%)` : `hsla(${hh}, ${s}%, ${l}%, ${a})`;
 };
-const makeVars = (h: number): React.CSSProperties => ({
-    '--tg-frame': hsl(h, 49, 76),
-    '--tg-frame-soft': hsl(h, 49, 76, 0.45),
-    '--tg-frame-a30': hsl(h, 49, 76, 0.3),
-    '--tg-frame-a22': hsl(h, 49, 76, 0.22),
-    '--tg-ink': hsl(h, 35, 57),
-    '--tg-grape': hsl(h, 27, 49),
-    '--tg-fade': hsl(h, 40, 72),
-    '--tg-pink': hsl(h + 75, 78, 80),
-    '--tg-hot': hsl(h + 75, 73, 66),
-    '--tg-peri': hsl(h - 31, 59, 78),
-    '--tg-rim3': hsl(h, 42, 84),
-    '--tg-heart': hsl(h + 75, 71, 80),
-    '--tg-heart-deep': hsl(h + 75, 66, 72),
-    '--tg-gem': hsl(h + 75, 70, 72, 0.75),
-    '--tg-cloud-shadow': hsl(h, 52, 85),
-    '--tg-glow16': hsl(h, 42, 60, 0.16),
-    '--tg-glow25': hsl(h, 45, 62, 0.25),
-    '--tg-glow35': hsl(h, 48, 64, 0.35),
-    '--tg-hotglow45': hsl(h + 75, 66, 66, 0.45),
-    '--tg-hotglow60': hsl(h + 75, 66, 66, 0.6),
-    '--tg-bg-top': hsl(h, 57, 91),
-    '--tg-bg-mid': hsl(h, 54, 88),
-    '--tg-bg-bot': hsl(h, 52, 85),
-    '--tg-drawer': hsl(h, 40, 95, 0.97),
-} as React.CSSProperties);
-
-const DEFAULT_HUE = 258; // 薰衣草
-const HUE_KEY = 'tama_accent_hue';
-const HUE_PRESETS: { h: number; name: string }[] = [
-    { h: 258, name: '薰衣草' },
-    { h: 340, name: '樱花' },
-    { h: 210, name: '天空' },
-    { h: 160, name: '薄荷' },
-    { h: 28, name: '蜜桃' },
-    { h: 48, name: '柠檬' },
+// ─── 风格方案（参考稿六方案）───────────────────────────────────
+type TgStyle = { id: string; name: string; hue: number; dark: boolean; gold: boolean; mute: boolean };
+const SCHEMES: TgStyle[] = [
+    { id: 'nebula', name: '星云紫', hue: 262, dark: true, gold: false, mute: false },
+    { id: 'cream', name: '奶油白', hue: 38, dark: false, gold: true, mute: false },
+    { id: 'blackgold', name: '暗夜黑金', hue: 45, dark: true, gold: true, mute: true },
+    { id: 'mint', name: '薄荷青', hue: 168, dark: false, gold: false, mute: false },
+    { id: 'sakura', name: '粉樱梦', hue: 340, dark: false, gold: false, mute: false },
+    { id: 'abyss', name: '深海蓝', hue: 218, dark: true, gold: false, mute: false },
 ];
+const STYLE_KEY = 'tama_style_v2';
+const LEGACY_HUE_KEY = 'tama_accent_hue'; // 旧版单色相偏好，迁移用
+
+// 方案 → 整套 CSS 变量。变量名与旧版一致（frame/ink/grape/fade/pink/hot/…），
+// 全部子组件零改动即可跟随明暗：暗色=深烟卡+浅线+亮字；亮色=奶白卡+深线+深字；
+// gold 方案描边/强调统一转金；mute 压饱和（黑金的近黑底）。
+const makeVars = (st: TgStyle): React.CSSProperties => {
+    const { hue: h, dark, gold, mute } = st;
+    const sat = (s: number) => (mute ? Math.min(s, 10) : s);
+    const accentH = gold ? 45 : h + 75;
+    if (dark) {
+        const lineH = gold ? 45 : h;
+        const lineS = gold ? 48 : 42;
+        return {
+            '--tg-frame': hsl(lineH, lineS, 70),
+            '--tg-frame-soft': hsl(lineH, lineS, 70, 0.5),
+            '--tg-frame-a30': hsl(lineH, lineS, 70, 0.3),
+            '--tg-frame-a22': hsl(lineH, lineS, 70, 0.22),
+            '--tg-card': hsl(h, sat(26), 13, 0.8),
+            '--tg-card-strong': hsl(h, sat(26), 16, 0.95),
+            '--tg-ink': hsl(h, 30, 84),
+            '--tg-grape': hsl(h, 45, 93),
+            '--tg-fade': hsl(h, 18, 64),
+            '--tg-pink': hsl(accentH, gold ? 48 : 60, 76),
+            '--tg-hot': hsl(accentH, gold ? 52 : 62, 66),
+            '--tg-peri': hsl(h - 31, 38, 72),
+            '--tg-rim3': hsl(h, sat(30), 40),
+            '--tg-heart': hsl(accentH, gold ? 48 : 58, 76),
+            '--tg-heart-deep': hsl(accentH, gold ? 52 : 60, 68),
+            '--tg-gem': hsl(accentH, 55, 70, 0.75),
+            '--tg-cloud-shadow': hsl(h, sat(30), 30),
+            '--tg-glow16': 'rgba(0,0,0,0.22)',
+            '--tg-glow25': 'rgba(0,0,0,0.32)',
+            '--tg-glow35': 'rgba(0,0,0,0.42)',
+            '--tg-hotglow45': hsl(accentH, 55, 60, 0.45),
+            '--tg-hotglow60': hsl(accentH, 55, 60, 0.6),
+            '--tg-bg-top': hsl(h, sat(28), 17),
+            '--tg-bg-mid': hsl(h, sat(26), 13),
+            '--tg-bg-bot': hsl(h, sat(24), 10),
+            '--tg-drawer': hsl(h, sat(24), 11, 0.97),
+        } as React.CSSProperties;
+    }
+    const lineH = gold ? 43 : h;
+    const lineS = gold ? 42 : 49;
+    const lineL = gold ? 56 : 72;
+    return {
+        '--tg-frame': hsl(lineH, lineS, lineL),
+        '--tg-frame-soft': hsl(lineH, lineS, lineL, 0.5),
+        '--tg-frame-a30': hsl(lineH, lineS, lineL, 0.3),
+        '--tg-frame-a22': hsl(lineH, lineS, lineL, 0.22),
+        '--tg-card': 'rgba(255,255,255,0.8)',
+        '--tg-card-strong': 'rgba(255,255,255,0.95)',
+        '--tg-ink': hsl(h, 35, 55),
+        '--tg-grape': hsl(h, 28, 45),
+        '--tg-fade': hsl(h, 30, 66),
+        '--tg-pink': hsl(accentH, 76, 78),
+        '--tg-hot': hsl(accentH, 70, 62),
+        '--tg-peri': hsl(h - 31, 58, 76),
+        '--tg-rim3': hsl(h, 42, 84),
+        '--tg-heart': hsl(accentH, 70, 78),
+        '--tg-heart-deep': hsl(accentH, 66, 70),
+        '--tg-gem': hsl(accentH, 70, 72, 0.75),
+        '--tg-cloud-shadow': hsl(h, 52, 85),
+        '--tg-glow16': hsl(h, 42, 60, 0.16),
+        '--tg-glow25': hsl(h, 45, 62, 0.25),
+        '--tg-glow35': hsl(h, 48, 64, 0.35),
+        '--tg-hotglow45': hsl(accentH, 66, 66, 0.45),
+        '--tg-hotglow60': hsl(accentH, 66, 66, 0.6),
+        '--tg-bg-top': hsl(h, 57, 91),
+        '--tg-bg-mid': hsl(h, 54, 88),
+        '--tg-bg-bot': hsl(h, 52, 85),
+        '--tg-drawer': hsl(h, 40, 95, 0.97),
+    } as React.CSSProperties;
+};
+
+// 面板小预览用：方案的底色 / 线色
+const schemePreview = (s: TgStyle) => ({
+    bg: s.dark ? hsl(s.hue, s.mute ? 10 : 26, 14) : hsl(s.hue, 50, 92),
+    line: s.gold ? (s.dark ? hsl(45, 48, 64) : hsl(43, 42, 56)) : hsl(s.hue, 45, s.dark ? 74 : 62),
+});
 
 const FLOOR_HORIZON = 65; // 与 RoomApp 一致：地平线 65%
 
@@ -463,10 +531,10 @@ const Actor = React.memo<{
                     <div className="absolute bottom-[104%] left-1/2 z-[61]" style={{ transform: 'translateX(-50%)' }}>
                         <div onClick={(e) => { e.stopPropagation(); setThoughtOpen(false); }}
                             className="relative w-max max-w-[240px] px-3.5 py-2.5 rounded-[18px] animate-pop-in"
-                            style={{ background: 'rgba(255,255,255,0.96)', border: `2px dashed ${PAL.frame}`, boxShadow: '0 4px 14px var(--tg-glow35)', transformOrigin: 'bottom center' }}>
-                            <p className="text-[10px] leading-[1.7] break-words" style={{ fontFamily: FONT_CN, color: PAL.grape, fontStyle: 'italic' }}>{heartLine}</p>
-                            <span className="absolute -bottom-2 left-[38%] w-2.5 h-2.5 rounded-full" style={{ background: 'rgba(255,255,255,0.96)', border: `1.5px dashed ${PAL.frame}` }} />
-                            <span className="absolute -bottom-4 left-[32%] w-1.5 h-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.96)', border: `1px dashed ${PAL.frame}` }} />
+                            style={{ background: 'rgba(255,255,255,0.96)', border: `2px dashed ${PAPER.line}`, boxShadow: '0 4px 14px var(--tg-glow35)', transformOrigin: 'bottom center' }}>
+                            <p className="text-[10px] leading-[1.7] break-words" style={{ fontFamily: FONT_CN, color: PAPER.hi, fontStyle: 'italic' }}>{heartLine}</p>
+                            <span className="absolute -bottom-2 left-[38%] w-2.5 h-2.5 rounded-full" style={{ background: 'rgba(255,255,255,0.96)', border: `1.5px dashed ${PAPER.line}` }} />
+                            <span className="absolute -bottom-4 left-[32%] w-1.5 h-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.96)', border: `1px dashed ${PAPER.line}` }} />
                         </div>
                     </div>
                 )}
@@ -475,8 +543,8 @@ const Actor = React.memo<{
                     <div className="absolute bottom-[102%] left-1/2 z-[60]" style={{ transform: 'translateX(-50%)' }}>
                         <div onClick={(e) => { if (bubbleIsChat) { e.stopPropagation(); onChat(); } }}
                             className="relative w-max max-w-[230px] px-3 py-1.5 rounded-xl rounded-bl-none animate-pop-in"
-                            style={{ background: PAL.cream, border: `2px solid ${PAL.frame}`, boxShadow: '0 3px 10px var(--tg-glow25)', transformOrigin: 'bottom center' }}>
-                            <p className="text-[10px] font-bold leading-snug break-words" style={{ fontFamily: FONT_PX, color: PAL.ink }}>{bubble}</p>
+                            style={{ background: PAPER.cream, border: `2px solid ${PAPER.line}`, boxShadow: '0 3px 10px var(--tg-glow25)', transformOrigin: 'bottom center' }}>
+                            <p className="text-[10px] font-bold leading-snug break-words" style={{ fontFamily: FONT_PX, color: PAPER.ink }}>{bubble}</p>
                         </div>
                     </div>
                 )}
@@ -484,8 +552,8 @@ const Actor = React.memo<{
                 {/* 状态小签：ta 此刻在做什么（跟着小人走，游戏 NPC 头顶状态那味儿） */}
                 {activity && !night && (
                     <div className="absolute top-[101%] left-1/2 whitespace-nowrap pointer-events-none" style={{ transform: 'translateX(-50%)' }}>
-                        <div className="px-2 py-[2px] rounded-full" style={{ background: 'rgba(255,255,255,0.85)', border: `1.5px solid ${PAL.frameSoft}`, boxShadow: '0 2px 6px var(--tg-glow16)' }}>
-                            <span className="text-[8.5px] font-bold" style={{ fontFamily: FONT_CN, color: PAL.ink }}>{activity}</span>
+                        <div className="px-2 py-[2px] rounded-full" style={{ background: 'rgba(255,255,255,0.85)', border: `1.5px solid ${PAPER.lineSoft}`, boxShadow: '0 2px 6px var(--tg-glow16)' }}>
+                            <span className="text-[8.5px] font-bold" style={{ fontFamily: FONT_CN, color: PAPER.ink }}>{activity}</span>
                         </div>
                     </div>
                 )}
@@ -545,19 +613,19 @@ const HangingSign = React.memo<{ text: string; onTap: () => void }>(({ text, onT
         style={{ top: 'calc(var(--safe-top, 0px) + 5.3rem)' }}>
         {/* 两根吊绳 */}
         <div className="flex gap-6">
-            <span style={{ width: 1.5, height: 22, background: PAL.frameSoft }} />
-            <span style={{ width: 1.5, height: 22, background: PAL.frameSoft }} />
+            <span style={{ width: 1.5, height: 22, background: PAPER.lineSoft }} />
+            <span style={{ width: 1.5, height: 22, background: PAPER.lineSoft }} />
         </div>
         <button onClick={onTap}
             className="pointer-events-auto active:scale-95 px-3 py-1.5 rounded-xl -mt-px"
             style={{
                 background: 'linear-gradient(180deg, #fffdf8, #f7efdf)',
-                border: `2px solid ${PAL.frame}`,
+                border: `2px solid ${PAPER.line}`,
                 boxShadow: '0 4px 10px var(--tg-glow25)',
                 transformOrigin: 'top center',
                 animation: 'tama-swing 5.5s ease-in-out infinite',
             }}>
-            <span className="text-[10px] font-bold whitespace-nowrap" style={{ fontFamily: FONT_CN, color: PAL.grape }}>{text}</span>
+            <span className="text-[10px] font-bold whitespace-nowrap" style={{ fontFamily: FONT_CN, color: PAPER.hi }}>{text}</span>
         </button>
     </div>
 ));
@@ -570,30 +638,30 @@ const DayScroll = React.memo<{ slots: { time: string; text: string; passed: bool
             style={{
                 top: 'calc(var(--safe-top, 0px) + 7.8rem)',
                 background: 'linear-gradient(180deg, #fffdf8 0%, #fbf5e8 100%)',
-                border: `2px solid ${PAL.frame}`, borderTopWidth: 4,
+                border: `2px solid ${PAPER.line}`, borderTopWidth: 4,
                 boxShadow: '0 10px 26px var(--tg-glow35)',
             }}>
             <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold" style={{ fontFamily: FONT_CN, color: PAL.grape }}>今天的一天 ✦</span>
-                <button onClick={onClose} className="px-1" style={{ color: PAL.fade }}>×</button>
+                <span className="text-[11px] font-bold" style={{ fontFamily: FONT_CN, color: PAPER.hi }}>今天的一天 ✦</span>
+                <button onClick={onClose} className="px-1" style={{ color: PAPER.dim }}>×</button>
             </div>
             {slots.length > 0 ? (
                 <div className="space-y-1 max-h-[42vh] overflow-y-auto no-scrollbar">
                     {slots.map((s, i) => (
                         <div key={i} className="flex items-center gap-2 py-0.5">
-                            <span className="text-[9px] tabular-nums shrink-0" style={{ fontFamily: FONT_PX, color: s.passed ? PAL.ink : PAL.fade }}>{s.time}</span>
-                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.current ? PAL.hot : (s.passed ? 'var(--tg-ink)' : 'var(--tg-frame-a30)') }} />
-                            <span className="flex-1 text-[10.5px] leading-relaxed" style={{ fontFamily: FONT_CN, color: s.passed ? PAL.grape : PAL.fade }}>{s.text}</span>
+                            <span className="text-[9px] tabular-nums shrink-0" style={{ fontFamily: FONT_PX, color: s.passed ? PAPER.ink : PAPER.dim }}>{s.time}</span>
+                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.current ? PAPER.hot : (s.passed ? PAPER.ink : PAPER.lineSoft) }} />
+                            <span className="flex-1 text-[10.5px] leading-relaxed" style={{ fontFamily: FONT_CN, color: s.passed ? PAPER.hi : PAPER.dim }}>{s.text}</span>
                             {/* 偷看这一刻：调 API 演一段角色行为（小剧场） */}
                             <button onClick={() => onPeek(i)} className="shrink-0 px-2 py-[3px] rounded-full text-[9px] font-bold active:scale-95"
-                                style={{ background: s.current ? `linear-gradient(135deg, ${PAL.pink}, ${PAL.hot})` : PAL.cream, color: s.current ? '#fff' : PAL.grape, border: `1.5px solid ${s.current ? 'transparent' : PAL.frameSoft}`, fontFamily: FONT_CN }}>
+                                style={{ background: s.current ? `linear-gradient(135deg, #f4a6cc, ${PAPER.hot})` : PAPER.cream, color: s.current ? '#fff' : PAPER.hi, border: `1.5px solid ${s.current ? 'transparent' : PAPER.lineSoft}`, fontFamily: FONT_CN }}>
                                 偷看
                             </button>
                         </div>
                     ))}
                 </div>
             ) : (
-                <p className="text-[10px] leading-relaxed" style={{ fontFamily: FONT_CN, color: PAL.fade }}>今天的日程还没生成——去聊两句，ta 的一天就会长出来。</p>
+                <p className="text-[10px] leading-relaxed" style={{ fontFamily: FONT_CN, color: PAPER.dim }}>今天的日程还没生成——去聊两句，ta 的一天就会长出来。</p>
             )}
         </div>
     </>
@@ -610,10 +678,10 @@ const WorldPortals = React.memo<{ onHome: () => void; onPixel: () => void; onDre
         <div className="absolute right-3 z-[35] flex flex-col gap-2.5" style={{ top: 'calc(var(--safe-top, 0px) + 7.5rem)' }}>
             {portals.map(p => (
                 <button key={p.key} onClick={p.onClick} className="flex flex-col items-center gap-0.5 active:scale-90 transition-transform">
-                    <span className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.82)', border: `2px solid ${PAL.frameSoft}`, boxShadow: '0 3px 8px var(--tg-glow25)', color: PAL.grape }}>
+                    <span className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.82)', border: `2px solid ${PAPER.lineSoft}`, boxShadow: '0 3px 8px var(--tg-glow25)', color: PAPER.hi }}>
                         <span className="w-5 h-5">{p.icon}</span>
                     </span>
-                    <span className="text-[8px] font-bold" style={{ fontFamily: FONT_CN, color: PAL.grape }}>{p.label}</span>
+                    <span className="text-[8px] font-bold" style={{ fontFamily: FONT_CN, color: PAPER.hi, textShadow: '0 1px 3px rgba(255,255,255,0.7)' }}>{p.label}</span>
                 </button>
             ))}
         </div>
@@ -651,7 +719,7 @@ const FloorPhone = React.memo<{ unread: number; open: boolean; msgs: { id: numbe
                     <div className="absolute left-4 right-[24%] z-[86] rounded-2xl px-3.5 py-3 animate-pop-in"
                         style={{
                             bottom: 'calc(var(--safe-bottom, 0px) + 11rem)',
-                            background: 'rgba(255,255,255,0.96)', border: `2px solid ${PAL.frame}`, boxShadow: '0 10px 26px var(--tg-glow35)',
+                            background: 'rgba(255,255,255,0.96)', border: `2px solid ${PAPER.line}`, boxShadow: '0 10px 26px var(--tg-glow35)',
                         }}>
                         {msgs.length > 0 ? (
                             <div className="space-y-1.5 mb-2.5">
@@ -659,21 +727,21 @@ const FloorPhone = React.memo<{ unread: number; open: boolean; msgs: { id: numbe
                                     <div key={m.id} className={`flex ${m.mine ? 'justify-end' : 'justify-start'}`}>
                                         <div className="max-w-[85%] px-2.5 py-1.5 rounded-xl text-[10.5px] leading-relaxed"
                                             style={m.mine
-                                                ? { background: `linear-gradient(135deg, ${PAL.peri}, ${PAL.pink})`, color: '#fff', borderBottomRightRadius: 4, fontFamily: FONT_CN }
-                                                : { background: PAL.cream, color: PAL.ink, border: `1.5px solid ${PAL.frameSoft}`, borderBottomLeftRadius: 4, fontFamily: FONT_CN }}>
+                                                ? { background: `linear-gradient(135deg, #a8b8e8, #f4a6cc)`, color: '#fff', borderBottomRightRadius: 4, fontFamily: FONT_CN }
+                                                : { background: PAPER.cream, color: PAPER.ink, border: `1.5px solid ${PAPER.lineSoft}`, borderBottomLeftRadius: 4, fontFamily: FONT_CN }}>
                                             {m.text}
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
-                            <p className="text-[10px] mb-2.5" style={{ fontFamily: FONT_CN, color: PAL.fade }}>还没聊过天，说点什么吧。</p>
+                            <p className="text-[10px] mb-2.5" style={{ fontFamily: FONT_CN, color: PAPER.dim }}>还没聊过天，说点什么吧。</p>
                         )}
                         <button onClick={onChat} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl active:scale-[0.99] transition-transform"
-                            style={{ background: PAL.cream, border: `2px solid ${PAL.frameSoft}` }}>
-                            <span className="flex-1 text-left text-[10.5px]" style={{ color: PAL.fade, fontFamily: FONT_CN }}>回点什么…</span>
+                            style={{ background: PAPER.cream, border: `2px solid ${PAPER.lineSoft}` }}>
+                            <span className="flex-1 text-left text-[10.5px]" style={{ color: PAPER.dim, fontFamily: FONT_CN }}>回点什么…</span>
                             <span className="w-5.5 h-5.5 w-6 h-6 rounded-full flex items-center justify-center shrink-0"
-                                style={{ background: `linear-gradient(135deg, ${PAL.pink}, ${PAL.hot})` }}>
+                                style={{ background: `linear-gradient(135deg, #f4a6cc, ${PAPER.hot})` }}>
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#fff" className="w-3 h-3"><path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" /></svg>
                             </span>
                         </button>
@@ -703,20 +771,20 @@ const ICON = {
     moon: <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"><path d="M20 13.5A8 8 0 1 1 10.5 4a6.3 6.3 0 0 0 9.5 9.5Z" /></svg>,
 };
 
-// 扁平手绘贴纸键：浅色平涂底 + 同色系描边 + 图标同描边色 + 极淡平面投影
-// （不要渐变鼓凸 / 高光帽 / 彩色辉光——那套显廉价，参考 MobileGameHome 的扁平手绘卡）
-const DockKey: React.FC<{ glyph: string; label: string; fill: string; line: string; badge?: number; onClick: () => void }> = ({ glyph, label, fill, line, badge = 0, onClick }) => (
-    <button onClick={onClick} className="flex flex-col items-center gap-1 group active:scale-90 transition-transform">
-        <div className="relative w-11 h-11 rounded-[1rem] flex items-center justify-center"
-            style={{ background: fill, border: `2px solid ${line}`, boxShadow: '0 2px 5px var(--tg-glow16)', color: line }}>
-            <span className="absolute top-[3px] right-[5px] text-[7px] pointer-events-none" style={{ color: line, opacity: 0.55 }}>✦</span>
-            <div className="w-5 h-5">{DOCK_GLYPHS[glyph]}</div>
+// 高级细线 dock 键（参考稿）：线描图标 + 中文 + 英文小标，无底色块——贵在克制
+const DockBtn: React.FC<{ glyph: React.ReactNode; cn: string; en: string; badge?: number; onClick: () => void }> = ({ glyph, cn, en, badge = 0, onClick }) => (
+    <button onClick={onClick} className="relative flex flex-col items-center gap-1 w-[3.4rem] active:scale-90 transition-transform">
+        <div className="relative w-6 h-6" style={{ color: PAL.frame }}>
+            {glyph}
             {badge > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[17px] h-[17px] px-1 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
-                    style={{ background: PAL.hot, border: '1.5px solid #fff' }}>{badge > 99 ? '99+' : badge}</span>
+                <span className="absolute -top-1.5 -right-2.5 min-w-[15px] h-[15px] px-0.5 rounded-full flex items-center justify-center text-[8px] font-bold text-white"
+                    style={{ background: PAL.hot, border: `1px solid ${PAL.cardHi}` }}>{badge > 99 ? '99' : badge}</span>
             )}
         </div>
-        <span className="text-[9px] font-bold tracking-[0.1em]" style={{ fontFamily: FONT_PX, color: PAL.ink }}>{label}</span>
+        <div className="flex flex-col items-center leading-none gap-[3px]">
+            <span className="text-[11px]" style={{ fontFamily: FONT_CN, color: PAL.grape }}>{cn}</span>
+            <span className="text-[6px] font-bold" style={{ fontFamily: FONT_PX, color: PAL.fade, letterSpacing: '0.16em' }}>{en}</span>
+        </div>
     </button>
 );
 
@@ -755,20 +823,28 @@ const TamagotchiHome: React.FC = () => {
     const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
     useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
 
-    // 主色调：localStorage 持久化（皮肤内偏好，不动 OS theme）
-    const [accentHue, setAccentHue] = useState<number>(() => {
-        const v = localStorage.getItem(HUE_KEY);
-        const n = v === null ? NaN : parseInt(v, 10);
-        return Number.isFinite(n) ? ((n % 360) + 360) % 360 : DEFAULT_HUE;
+    // 界面风格：localStorage 持久化（皮肤内偏好，不动 OS theme）；默认 星云紫，
+    // 兼容旧版单色相偏好（tama_accent_hue → 亮色自定义）
+    const [style, setStyle] = useState<TgStyle>(() => {
+        try {
+            const raw = localStorage.getItem(STYLE_KEY);
+            if (raw) {
+                const p = JSON.parse(raw);
+                if (typeof p?.hue === 'number') return { id: p.id || 'custom', name: p.name || '自定义', hue: p.hue, dark: !!p.dark, gold: !!p.gold, mute: !!p.mute };
+            }
+            const legacy = localStorage.getItem(LEGACY_HUE_KEY);
+            const n = legacy === null ? NaN : parseInt(legacy, 10);
+            if (Number.isFinite(n)) return { id: 'custom', name: '自定义', hue: ((n % 360) + 360) % 360, dark: false, gold: false, mute: false };
+        } catch { /* 解析失败走默认 */ }
+        return SCHEMES[0];
     });
     const [paletteOpen, setPaletteOpen] = useState(false);
     const [extracting, setExtracting] = useState(false);
-    const setAccent = useCallback((h: number) => {
-        const hh = ((Math.round(h) % 360) + 360) % 360;
-        setAccentHue(hh);
-        try { localStorage.setItem(HUE_KEY, String(hh)); } catch { /* 私密模式等场景失败无妨 */ }
+    const applyStyle = useCallback((s: TgStyle) => {
+        setStyle(s);
+        try { localStorage.setItem(STYLE_KEY, JSON.stringify(s)); } catch { /* 私密模式等场景失败无妨 */ }
     }, []);
-    const rootVars = useMemo(() => makeVars(accentHue), [accentHue]);
+    const rootVars = useMemo(() => makeVars(style), [style]);
 
     const char: CharacterProfile | null = useMemo(
         () => characters.find(c => c.id === activeCharacterId) || characters[0] || null,
@@ -851,7 +927,8 @@ const TamagotchiHome: React.FC = () => {
     const wallStyle = getBgStyle(wallImg, char?.roomConfig?.wallScale, char?.roomConfig?.wallRepeat, FALLBACK_WALL);
     const floorStyle = getBgStyle(floorImg, char?.roomConfig?.floorScale, char?.roomConfig?.floorRepeat, FALLBACK_FLOOR);
 
-    // 「提取小窝主色」：依次尝试 墙纸→地板→立绘（图片走 canvas 采样，渐变串直接解析色值）
+    // 「提取小窝主色」：依次尝试 墙纸→地板→立绘（图片走 canvas 采样，渐变串直接解析色值）；
+    // 只换色相，保留当前方案的明暗/压饱和基调（金线换成取到的颜色）
     const extractRoomHue = useCallback(async () => {
         if (extracting) return;
         setExtracting(true);
@@ -861,16 +938,16 @@ const TamagotchiHome: React.FC = () => {
                 const isUrl = cand.startsWith('http') || cand.startsWith('data') || cand.startsWith('blob:');
                 const h = isUrl ? await hueFromImage(cand) : hueFromGradient(cand);
                 if (h !== null) {
-                    setAccent(h);
+                    applyStyle({ ...style, id: 'custom', name: '小窝色', hue: ((Math.round(h) % 360) + 360) % 360, gold: false, mute: false });
                     addToast('已提取小窝主色 ✦', 'success');
                     return;
                 }
             }
-            addToast('没提取到明显的主色，试试手动选一个', 'info');
+            addToast('没提取到明显的主色，试试选个方案', 'info');
         } finally {
             setExtracting(false);
         }
-    }, [wallImg, floorImg, actorImg, extracting, setAccent, addToast]);
+    }, [wallImg, floorImg, actorImg, extracting, style, applyStyle, addToast]);
 
     const night = isNightHour(virtualTime.hours);
     const hh = virtualTime.hours.toString().padStart(2, '0');
@@ -943,30 +1020,46 @@ const TamagotchiHome: React.FC = () => {
                 @keyframes tama-heart { 0% { opacity: 0; transform: translate(-50%, 0) scale(0.5); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(calc(-50% + var(--dx, 0px)), -46px) scale(1.1); } }
             `}</style>
 
-            {/* ===== 报头（浮在房间墙上，一整条贴纸，清爽）：头像切角色 · 名字 · 时间/Lv/心条 · 调色 ===== */}
+            {/* ===== 报头（高级横幅，参考稿）：细线环头像 · 衬线名字 · Lv·时间 · 经验条 · 调色/聊天圆钮 ===== */}
             <div className="absolute top-0 inset-x-0 z-[40] px-3" style={{ paddingTop: 'calc(var(--safe-top, 0px) + 0.7rem)' }}>
                 {char ? (
-                    <div className="flex items-center gap-2 rounded-full pl-1 pr-2 py-1"
-                        style={{ background: 'rgba(255,255,255,0.78)', border: `1.5px solid ${PAL.frameSoft}`, boxShadow: '0 3px 10px var(--tg-glow16)' }}>
-                        <button onClick={switchChar} className={`w-8 h-8 rounded-full p-[2px] shrink-0 ${characters.length > 1 ? 'active:scale-90 transition-transform' : ''}`} style={{ background: RIM }}>
-                            <div className="w-full h-full rounded-full overflow-hidden" style={{ border: '1.5px solid #fff', background: '#fff' }}>
+                    <div className="relative flex items-center gap-3 rounded-[1.4rem] pl-2 pr-2.5 py-2"
+                        style={{ background: PAL.card, border: `1.5px solid ${PAL.frameSoft}`, boxShadow: '0 5px 16px var(--tg-glow25)' }}>
+                        {/* 内描边细框 + 卡内星芒 */}
+                        <div className="absolute inset-[4px] rounded-[1.15rem] pointer-events-none" style={{ border: '1px solid var(--tg-frame-a22)' }} />
+                        <Sparkles items={[[62, 16, 8, PAL.frame, 0.75, true], [50, 82, 7, PAL.frame, 0.5], [74, 60, 7, PAL.frame, 0.45, true]]} />
+                        <button onClick={switchChar} className={`relative w-[46px] h-[46px] rounded-full p-[2px] shrink-0 ${characters.length > 1 ? 'active:scale-90 transition-transform' : ''}`}
+                            style={{ border: `1.5px solid ${PAL.frame}`, boxShadow: '0 0 10px var(--tg-frame-a30)' }}>
+                            <div className="w-full h-full rounded-full overflow-hidden" style={{ background: PAL.cardHi }}>
                                 <img src={char.avatar} className="w-full h-full object-cover" alt="" loading="lazy" draggable={false} />
                             </div>
+                            {characters.length > 1 && <span className="absolute -bottom-0.5 -right-0.5 w-[15px] h-[15px] rounded-full flex items-center justify-center text-[8px]" style={{ background: PAL.cardHi, border: `1px solid ${PAL.frameSoft}`, color: PAL.ink }}>⇄</span>}
                         </button>
-                        {/* 名字 + Lv */}
-                        <div className="flex flex-col min-w-0 leading-none">
-                            <span className="text-[12px] font-bold truncate" style={{ fontFamily: FONT_CN, color: PAL.grape }}>{char.name}</span>
-                            <span className="text-[9px] mt-0.5 tabular-nums" style={{ fontFamily: FONT_PX, color: PAL.fade }}>Lv.{level} · {hh}:{mm}</span>
-                        </div>
-                        {/* 发丝心条 */}
-                        <div className="flex-1 h-[7px] rounded-full overflow-hidden min-w-[36px]" style={{ background: 'rgba(255,255,255,0.6)', border: `1px solid ${PAL.frameSoft}` }}>
-                            <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.round((exp / expMax) * 100))}%`, background: `linear-gradient(90deg, ${PAL.peri}, ${PAL.pink}, ${PAL.hot})` }} />
+                        {/* 衬线名字 + Lv·时间 + 经验条 */}
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2">
+                                <span className="text-[17px] leading-none truncate" style={{ fontFamily: FONT_NUM, color: PAL.grape, letterSpacing: '0.03em' }}>{char.name}</span>
+                                <span className="text-[9px] tabular-nums shrink-0" style={{ fontFamily: FONT_PX, color: PAL.fade }}>Lv.{level} · {hh}:{mm}{night ? ' ·🌙' : ''}</span>
+                            </div>
+                            <div className="h-[5px] rounded-full overflow-hidden mt-1.5" style={{ background: 'var(--tg-frame-a22)' }}>
+                                <div className="h-full rounded-full" style={{ width: `${Math.max(3, Math.min(100, Math.round((exp / expMax) * 100)))}%`, background: `linear-gradient(90deg, ${PAL.peri}, ${PAL.pink}, ${PAL.hot})`, boxShadow: '0 0 6px var(--tg-frame-a30)' }} />
+                            </div>
                         </div>
                         {/* 调色（SVG，不用 emoji） */}
-                        <button onClick={() => setPaletteOpen(v => !v)} aria-label="主色调"
-                            className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 active:scale-90 transition-transform"
-                            style={{ background: PAL.cream, border: `1.5px solid ${PAL.frame}`, color: PAL.grape }}>
+                        <button onClick={() => setPaletteOpen(v => !v)} aria-label="界面风格"
+                            className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 active:scale-90 transition-transform"
+                            style={{ background: PAL.cardHi, border: `1.5px solid ${PAL.frameSoft}`, color: PAL.grape }}>
                             <span className="w-4 h-4">{ICON.palette}</span>
+                        </button>
+                        {/* 聊天圆钮（带未读角标） */}
+                        <button onClick={openChat} aria-label="聊天"
+                            className="relative w-9 h-9 rounded-full flex items-center justify-center shrink-0 active:scale-90 transition-transform"
+                            style={{ background: PAL.cardHi, border: `1.5px solid ${PAL.frame}`, color: PAL.grape }}>
+                            <div className="w-[17px] h-[17px]">{DOCK_GLYPHS.talk}</div>
+                            {charUnread > 0 && (
+                                <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-0.5 rounded-full flex items-center justify-center text-[8px] font-bold text-white"
+                                    style={{ background: PAL.hot, border: `1px solid ${PAL.cardHi}` }}>{charUnread > 99 ? '99' : charUnread}</span>
+                            )}
                         </button>
                     </div>
                 ) : (
@@ -976,39 +1069,43 @@ const TamagotchiHome: React.FC = () => {
                 )}
             </div>
 
-            {/* ===== 🎨 主色调面板（扁平手绘小卡，点外面关闭）===== */}
+            {/* ===== 🎨 界面风格面板（六方案 + 提取小窝主色，点外面关闭）===== */}
             {paletteOpen && (
                 <>
                     <div className="absolute inset-0 z-[45]" onClick={() => setPaletteOpen(false)} />
-                    <div className="absolute right-4 z-50 w-[15.5rem] rounded-2xl p-3.5 animate-pop-in"
-                        style={{ top: 'calc(var(--safe-top, 0px) + 3.4rem)', background: PAL.cream, border: `2px solid ${PAL.frame}`, boxShadow: '0 8px 22px var(--tg-glow35)' }}>
+                    <div className="absolute right-4 z-50 w-[16.5rem] rounded-2xl p-3.5 animate-pop-in"
+                        style={{ top: 'calc(var(--safe-top, 0px) + 4.6rem)', background: PAL.cardHi, border: `1.5px solid ${PAL.frameSoft}`, boxShadow: '0 10px 26px var(--tg-glow35)' }}>
+                        <div className="absolute inset-[4px] rounded-[0.85rem] pointer-events-none" style={{ border: '1px solid var(--tg-frame-a22)' }} />
                         <div className="flex items-center gap-1.5 mb-2.5">
                             <span className="w-4 h-4" style={{ color: PAL.grape }}>{ICON.palette}</span>
-                            <span className="text-[12px] font-bold tracking-wide" style={{ fontFamily: FONT_CN, color: PAL.grape }}>主色调</span>
+                            <span className="text-[12px] font-bold tracking-wide" style={{ fontFamily: FONT_CN, color: PAL.grape }}>界面风格</span>
                             <span className="text-[8px]" style={{ color: PAL.gold }}>✦</span>
                         </div>
-                        <div className="grid grid-cols-6 gap-2 mb-3">
-                            {HUE_PRESETS.map(p => {
-                                const active = accentHue === p.h;
+                        <div className="grid grid-cols-3 gap-2 mb-3">
+                            {SCHEMES.map(s => {
+                                const pv = schemePreview(s);
+                                const active = style.id === s.id;
                                 return (
-                                    <button key={p.h} onClick={() => setAccent(p.h)} title={p.name}
-                                        className="flex flex-col items-center gap-1 active:scale-90 transition-transform">
-                                        <span className="w-7 h-7 rounded-full flex items-center justify-center"
-                                            style={{ background: hsl(p.h, 55, 75), border: active ? '2px solid #fff' : '2px solid rgba(255,255,255,0.6)', boxShadow: active ? `0 0 0 2px ${hsl(p.h, 45, 58)}, 0 2px 6px ${hsl(p.h, 50, 60, 0.5)}` : '0 1px 4px rgba(120,110,150,0.25)' }}>
-                                            {active && <span className="text-[9px] text-white">✦</span>}
+                                    <button key={s.id} onClick={() => applyStyle(s)}
+                                        className="relative flex flex-col items-center gap-1 active:scale-95 transition-transform">
+                                        <span className="relative w-full h-9 rounded-lg overflow-hidden flex items-center justify-center"
+                                            style={{ background: pv.bg, border: active ? `2px solid ${pv.line}` : '1.5px solid rgba(150,140,160,0.35)' }}>
+                                            <span className="absolute inset-x-2 top-1.5 h-[3px] rounded-full" style={{ background: pv.line, opacity: 0.85 }} />
+                                            <span className="absolute inset-x-4 bottom-1.5 h-[2px] rounded-full" style={{ background: pv.line, opacity: 0.5 }} />
+                                            {active && <span className="text-[9px]" style={{ color: pv.line }}>✦</span>}
                                         </span>
-                                        <span className="text-[8px]" style={{ fontFamily: FONT_CN, color: PAL.fade }}>{p.name}</span>
+                                        <span className="text-[8.5px] leading-none" style={{ fontFamily: FONT_CN, color: active ? PAL.grape : PAL.fade }}>{s.name}</span>
                                     </button>
                                 );
                             })}
                         </div>
                         <button onClick={extractRoomHue} disabled={extracting}
                             className="w-full py-2 rounded-xl text-[11px] font-bold active:scale-95 transition-transform disabled:opacity-60 flex items-center justify-center gap-1.5"
-                            style={{ background: `linear-gradient(135deg, ${PAL.pink}, ${PAL.peri})`, border: '2px solid rgba(255,255,255,0.85)', color: '#fff', fontFamily: FONT_CN, textShadow: '0 1px 2px rgba(90,70,130,0.35)' }}>
+                            style={{ background: PAL.card, border: `1.5px solid ${PAL.frame}`, color: PAL.grape, fontFamily: FONT_CN }}>
                             <span className="w-3.5 h-3.5">{DOCK_GLYPHS.home}</span>{extracting ? '正在打量小窝…' : '提取小窝主色'}
                         </button>
                         <p className="text-[8.5px] leading-relaxed mt-2 text-center" style={{ color: PAL.fade, fontFamily: FONT_CN }}>
-                            从 ta 的墙纸 / 地板 / 立绘里找主色，整台机子跟着换装
+                            从 ta 的墙纸 / 地板 / 立绘里找主色，保留当前明暗基调
                         </p>
                     </div>
                 </>
@@ -1039,34 +1136,38 @@ const TamagotchiHome: React.FC = () => {
                     {/* 观察旁白（点家具后出现，贴在 dock 上方） */}
                     {observation && (
                         <div className="absolute inset-x-4 z-[38] px-3.5 py-2.5 rounded-2xl"
-                            style={{ bottom: 'calc(var(--safe-bottom, 0px) + 7.4rem)', background: 'rgba(255,255,255,0.92)', border: `1.5px solid ${PAL.frameSoft}`, boxShadow: '0 4px 12px var(--tg-glow25)' }}>
+                            style={{ bottom: 'calc(var(--safe-bottom, 0px) + 7.4rem)', background: 'rgba(255,255,255,0.92)', border: `1.5px solid ${PAPER.lineSoft}`, boxShadow: '0 4px 12px var(--tg-glow25)' }}>
                             <div className="flex justify-between items-start">
-                                <span className="text-[8px] font-bold tracking-[0.28em]" style={{ fontFamily: FONT_PX, color: PAL.fade }}>OBSERVATION ✦</span>
-                                <button onClick={() => setObservation('')} className="px-1 -mt-0.5" style={{ color: PAL.fade }}>×</button>
+                                <span className="text-[8px] font-bold tracking-[0.28em]" style={{ fontFamily: FONT_PX, color: PAPER.dim }}>OBSERVATION ✦</span>
+                                <button onClick={() => setObservation('')} className="px-1 -mt-0.5" style={{ color: PAPER.dim }}>×</button>
                             </div>
-                            <p className="text-[11px] leading-relaxed mt-0.5" style={{ fontFamily: FONT_CN, color: PAL.grape }}>{observation}</p>
+                            <p className="text-[11px] leading-relaxed mt-0.5" style={{ fontFamily: FONT_CN, color: PAPER.hi }}>{observation}</p>
                         </div>
                     )}
 
-                    {/* ===== 五键 dock（机器的按键，浮在地板上）===== */}
+                    {/* ===== 五键 dock（高级细线双语版，参考稿）：约会 / 聊天 / 全部(星徽) / 记忆 / 设置 ===== */}
                     <div className="absolute inset-x-4 z-[40]" style={{ bottom: 'calc(var(--safe-bottom, 0px) + 0.9rem)' }}>
-                        <div className="rounded-[1.5rem] p-[2.5px]" style={{ background: RIM, boxShadow: '0 6px 18px var(--tg-glow35)' }}>
-                            <div className="relative rounded-[1.35rem] px-3 pt-2 pb-1.5 flex items-end justify-between"
-                                style={{ background: 'rgba(255,255,255,0.88)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.95)' }}>
-                                <Sparkles items={[[6, 18, 8, PAL.pink, 0.7], [94, 22, 8, PAL.peri, 0.7], [50, 6, 7, PAL.gold, 0.8, true]]} />
-                                <DockKey glyph="heart" label="约会" fill="#fcd6de" line="#e0748f" onClick={() => openApp(AppID.Date)} />
-                                <DockKey glyph="talk" label="聊天" fill="#cdeede" line="#58ab84" badge={totalUnread} onClick={openChat} />
-                                {/* 中央星星：点开全部应用抽屉 */}
-                                <button onClick={() => setDrawerOpen(true)} className="relative flex flex-col items-center gap-1 -mt-6 active:scale-95 transition-transform">
-                                    <div className="relative w-[3.6rem] h-[3.6rem] rounded-[1.4rem] flex items-center justify-center"
-                                        style={{ background: `linear-gradient(150deg, ${PAL.pink}, ${PAL.peri})`, border: '2px solid rgba(255,255,255,0.9)', boxShadow: '0 4px 12px var(--tg-hotglow45)', color: '#fff' }}>
-                                        <div className="w-8 h-8" style={{ filter: 'drop-shadow(0 1px 3px rgba(120,90,150,0.4))' }}>{DOCK_GLYPHS.star}</div>
-                                    </div>
-                                    <span className="text-[9px] font-bold tracking-[0.06em]" style={{ fontFamily: FONT_CN, color: PAL.ink }}>全部</span>
-                                </button>
-                                <DockKey glyph="album" label="记忆" fill="#e4dbf8" line="#9678d8" onClick={() => openApp(AppID.MemoryPalace)} />
-                                <DockKey glyph="gear" label="设置" fill="#d9def5" line="#7f8fd0" onClick={() => openApp(AppID.Settings)} />
-                            </div>
+                        <div className="relative rounded-[1.7rem] px-4 pt-2.5 pb-2 flex items-end justify-between"
+                            style={{ background: PAL.card, border: `1.5px solid ${PAL.frameSoft}`, boxShadow: '0 8px 22px var(--tg-glow35)' }}>
+                            <div className="absolute inset-[4px] rounded-[1.45rem] pointer-events-none" style={{ border: '1px solid var(--tg-frame-a22)' }} />
+                            <Sparkles items={[[7, 14, 7, PAL.frame, 0.6], [93, 18, 7, PAL.frame, 0.55], [50, -8, 8, PAL.frame, 0.8, true]]} />
+                            <DockBtn glyph={DOCK_GLYPHS.heart} cn="约会" en="DATE" onClick={() => openApp(AppID.Date)} />
+                            <DockBtn glyph={DOCK_GLYPHS.talk} cn="聊天" en="CHAT" badge={totalUnread} onClick={openChat} />
+                            {/* 中央星徽：点开全部应用抽屉 */}
+                            <button onClick={() => setDrawerOpen(true)} className="relative flex flex-col items-center gap-1 -mt-8 active:scale-95 transition-transform">
+                                <div className="relative w-[3.7rem] h-[3.7rem] rounded-full flex items-center justify-center"
+                                    style={{ background: PAL.cardHi, border: `1.5px solid ${PAL.frame}`, boxShadow: '0 0 14px var(--tg-frame-a30), 0 6px 16px var(--tg-glow35)' }}>
+                                    <div className="absolute inset-[4px] rounded-full pointer-events-none" style={{ border: '1px solid var(--tg-frame-a30)' }} />
+                                    <div className="w-6 h-6" style={{ color: PAL.gold }}>{DOCK_GLYPHS.star}</div>
+                                    <span className="absolute -top-0.5 left-1/2 -translate-x-1/2 text-[8px]" style={{ color: PAL.frame, animation: 'tama-twinkle 2s ease-in-out infinite' }}>✦</span>
+                                </div>
+                                <div className="flex flex-col items-center leading-none gap-[3px]">
+                                    <span className="text-[11px]" style={{ fontFamily: FONT_CN, color: PAL.grape }}>全部</span>
+                                    <span className="text-[6px] font-bold" style={{ fontFamily: FONT_PX, color: PAL.fade, letterSpacing: '0.16em' }}>ALL</span>
+                                </div>
+                            </button>
+                            <DockBtn glyph={DOCK_GLYPHS.album} cn="记忆" en="MEMORY" onClick={() => openApp(AppID.MemoryPalace)} />
+                            <DockBtn glyph={DOCK_GLYPHS.gear} cn="设置" en="SETTING" onClick={() => openApp(AppID.Settings)} />
                         </div>
                     </div>
                 </>
@@ -1105,7 +1206,7 @@ const TamagotchiHome: React.FC = () => {
                         <h2 className="text-lg tracking-wide" style={{ fontFamily: FONT_CN, color: PAL.ink }}>全部应用</h2>
                         <button onClick={(e) => { e.stopPropagation(); setDrawerOpen(false); }} aria-label="关闭"
                             className="w-9 h-9 rounded-xl flex items-center justify-center active:scale-90 transition-transform"
-                            style={{ background: '#fff', border: `2px solid ${PAL.frame}` }}>
+                            style={{ background: PAL.cardHi, border: `1.5px solid ${PAL.frameSoft}` }}>
                             <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: PAL.ink }}><path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" /></svg>
                         </button>
                     </div>
