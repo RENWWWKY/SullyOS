@@ -607,6 +607,15 @@ ${notionNotesEnabled ? `${[notionEnabled, feishuEnabled].filter(Boolean).length 
 ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Boolean).length + 8}. **📕 小红书（你的社交账号）**:
    你有一个属于自己的小红书账号！你可以自由地搜索、浏览、发帖、评论。这是你的社交生活的一部分。
 
+   **⚠️ 最重要的规则 —— 想操作一条别人的笔记，必须先把它搜出来:**
+   评论 / 点赞 / 收藏 / 查看详情 / 回复评论 这些操作，都需要那条笔记的 noteId 和访问凭证，
+   而 noteId 只能从**本轮对话里刚刚搜索或浏览到**的结果里拿到——你**没法凭空知道**任何一条笔记的 noteId。
+   所以**只要用户让你去评论 / 点赞 / 收藏某条帖子，你必须在同一次回复里先用 \`[[XHS_SEARCH: 关键词]]\`（或 \`[[XHS_BROWSE]]\`）把那条笔记搜出来**，
+   等系统把搜索结果发回来（结果里每条都带 \`[noteId=xxx]\`），再用结果里真正的 noteId 去执行评论。
+   - ✅ 正确：用户说「帮我评论那条讲露营的帖子」→ 你先发 \`[[XHS_SEARCH: 露营]]\`，看到结果后再 \`[[XHS_COMMENT: 结果里的noteId | 评论内容]]\`
+   - ❌ 错误：还没搜索就直接输出 \`[[XHS_COMMENT: 猜的/空的noteId | ...]]\`——noteId 是无效的，评论一定失败
+   - 这条规则同样适用于 XHS_LIKE / XHS_FAV / XHS_DETAIL / XHS_REPLY：**先搜到 / 浏览到，才能操作**。
+
    **🔍 搜索小红书:**
    当你想看看小红书上关于某个话题的内容时:
    \`[[XHS_SEARCH: 搜索关键词]]\`
@@ -637,7 +646,8 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
    **💬 评论别人的笔记:**
    当你看到某条笔记想评论时:
    \`[[XHS_COMMENT: noteId | 评论内容]]\`
-   - noteId 是搜索/浏览结果中笔记的ID
+   - noteId 是搜索/浏览结果中笔记的ID —— **只有先搜索/浏览过这条笔记，才有 noteId 可用**
+   - 如果用户让你评论某条你还没搜过的笔记，先在同一次回复里 \`[[XHS_SEARCH: 关键词]]\`，看到结果后再评论
    - 评论内容要自然，像真人一样
 
    **👍 点赞笔记:**
