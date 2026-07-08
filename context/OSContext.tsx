@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile } from '../types';
 import { DB } from '../utils/db';
+import { modelRejectsSamplingParams, stripSamplingParams, isSamplingParamError } from '../utils/samplingParamCompat';
 import { extractImagesInPlace, deepCloneForExport } from '../utils/backupExport';
 import { writeV2Backup, assembleV2Backup, type BackupManifest, type ZipFileWriter, type ZipFileReader } from '../utils/backupFormat';
 import { encodeVectorsForBackup } from '../utils/memoryPalace/db';
@@ -753,8 +754,43 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const urlStr = String(resource);
           const fetchStartedAt = Date.now();
 
+          // 采样参数兼容层（详见 utils/samplingParamCompat.ts）：
+          // 某些模型废弃了 temperature/top_p/top_k，带上直接 400。这里在所有 /chat/completions
+          // 的统一出口做发送前主动摘除，覆盖 Schedule / 记忆 / 见面等全部旁路调用点。
+          let sendArgs: [RequestInfo | URL, RequestInit?] = args;
+          if (urlStr.includes('/chat/completions')) {
+              const rawBody = (config as RequestInit | undefined)?.body;
+              if (typeof rawBody === 'string') {
+                  try {
+                      const parsed = JSON.parse(rawBody);
+                      if (modelRejectsSamplingParams(parsed?.model) && stripSamplingParams(parsed)) {
+                          sendArgs = [resource, { ...(config as RequestInit), body: JSON.stringify(parsed) }];
+                      }
+                  } catch { /* 非 JSON body：原样放行 */ }
+              }
+          }
+
           try {
-              const response = await originalFetch(...args);
+              let response = await originalFetch(...sendArgs);
+
+              // 兜底：模型没被上面清单覆盖但仍拒收采样参数时，读 400 报文自愈——摘掉后重试一次。
+              if (!response.ok && response.status === 400 && urlStr.includes('/chat/completions')) {
+                  const sentBody = (sendArgs[1] as RequestInit | undefined)?.body;
+                  if (typeof sentBody === 'string') {
+                      let errText = '';
+                      try { errText = await response.clone().text(); } catch { /* 读不出就算了 */ }
+                      if (isSamplingParamError(errText)) {
+                          try {
+                              const parsed = JSON.parse(sentBody);
+                              if (stripSamplingParams(parsed)) {
+                                  sendArgs = [resource, { ...(sendArgs[1] as RequestInit), body: JSON.stringify(parsed) }];
+                                  response = await originalFetch(...sendArgs);
+                              }
+                          } catch { /* 解析失败：保留原始 400 响应 */ }
+                      }
+                  }
+              }
+
               const durationMs = Date.now() - fetchStartedAt;
 
               // 「API 调用记录」统一记录入口：所有 /chat/completions（裸 fetch + safeFetchJson
@@ -762,7 +798,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // （safeFetchJson 传的精确信息），裸 fetch 没有就由 recordApiCall 用环境兜底。
               if (urlStr.includes('/chat/completions')) {
                   const meta = (config as any)?.__sullyMeta;
-                  const body = (config as any)?.body;
+                  const body = (sendArgs[1] as any)?.body;
                   const status = response.status;
                   const ok = response.ok;
                   // clone 出来异步读 usage，不阻塞调用方拿 response
@@ -788,7 +824,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                           // 把发出去的请求体摘要也记上 —— 排查"只有点单(带工具)报错"必须看到 model/参数/tools/消息结构
                           let reqSummary = '';
                           try {
-                              const b = (config as any)?.body;
+                              const b = (sendArgs[1] as any)?.body;
                               if (typeof b === 'string') {
                                   const j = JSON.parse(b);
                                   const toolNames = Array.isArray(j.tools) ? j.tools.map((t: any) => t?.function?.name).filter(Boolean) : [];
@@ -820,7 +856,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           } catch (err: any) {
               // Network Failure
               if (urlStr.includes('/chat/completions')) {
-                  recordApiCall({ url: urlStr, body: (config as any)?.body, ok: false, meta: (config as any)?.__sullyMeta, durationMs: Date.now() - fetchStartedAt });
+                  recordApiCall({ url: urlStr, body: (sendArgs[1] as any)?.body, ok: false, meta: (config as any)?.__sullyMeta, durationMs: Date.now() - fetchStartedAt });
               }
               setSystemLogs(prev => [{
                   id: `log-${Date.now()}`,
