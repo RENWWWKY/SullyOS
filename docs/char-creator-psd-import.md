@@ -50,6 +50,17 @@
 
 > 不会用 git 也行：GitHub 网页版 → 进 `public/like520/parts/` 目录 → `Add file → Upload files` 拖拽上传 → 底部 `Commit changes`。
 
+## 换画风：老画风折叠（`LEGACY_IDS`）
+
+`character_creator.html` 启动时把当时 `PARTS` 里的内置部件 id 快照进 `LEGACY_IDS`（不含
+SULLY 专属 special）。之后经内置素材包 / 用户上传进来的都是「新画风」，不在此集合。
+
+规则**按类目智能生效**：某类目**一旦有了新画风部件**（`catHasNonLegacy`），它的老画风就
+**折叠隐藏**（面板不展示）+ **随机 roll 不到**；还没上传新款的类目，老款照常可用，避免迁移期留空档。
+老画风数据始终保留在 `PARTS` 里，**用了老部件的旧角色仍能正常渲染**——只是不能再在面板里重新选它。
+
+所以换画风只需：把新画风做成内置素材包传上去，对应类目的老款自动隐去，无需删任何东西。
+
 ## 用户上传部件的 Blob 存储
 
 `CustomCreatorPart.src` / `shadowSrc` 落库前经 `creatorPartToBlobRefs` 转成 `blobref:<id>` 令牌

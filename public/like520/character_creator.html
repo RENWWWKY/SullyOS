@@ -633,6 +633,20 @@
 const IS_EMBEDDED = window.parent !== window;
 /* 记录哪些 item 是自定义部件（用于界面内列表/删除）。所有经 mergeExtraItems 进来的都是。 */
 const customPartIds = new Set();
+
+/* 老画风内置部件 id 集合（启动时从 PARTS 快照，见底部 boot；不含 special/SULLY 专属）。
+   新画风通过内置素材包 / 自定义上传经 mergeExtraItems 进来，不在此集合内。
+   规则：某类目「一旦有了新画风部件」，它的老画风就折叠隐藏 + 随机 roll 不到（但保留在
+   PARTS 里，老角色仍能正常渲染）；还没上传新款的类目，老款照常可用，避免迁移期留空档。 */
+const LEGACY_IDS = new Set();
+/* 该类目是否已有「新画风」（非老画风、非 special）部件 */
+function catHasNonLegacy(part) {
+  return !!part && Array.isArray(part.items) && part.items.some(it => !it.special && !LEGACY_IDS.has(it.id));
+}
+/* 这个 item 是否应作为老画风被折叠隐藏 / 排除随机（仅当同类目已有新款时才生效） */
+function isFoldedLegacy(part, item) {
+  return LEGACY_IDS.has(item.id) && catHasNonLegacy(part);
+}
 let LIKE520_MODE = 'char';
 let LIKE520_CHAR_NAME = '';
 let LIKE520_IS_SULLY = false;
@@ -1470,6 +1484,8 @@ function renderPanel() {
   part.items.forEach(item => {
     // 非 Sully 角色：隐藏 special 项（fronthair_99 / back1_99 / eyes_99 是 Sully 专属）
     if (item.special && !LIKE520_IS_SULLY) return;
+    // 老画风：该类目已有新款时，折叠隐藏老款（数据保留，老角色仍渲染，只是不在面板里选）
+    if (isFoldedLegacy(part, item)) return;
     const btn = document.createElement("button");
     const selected = isSelected(part.key, item.id);
     const isFocus = isMulti && selected && item.id === focusedId;
@@ -2062,8 +2078,8 @@ function toast(msg) {
 
 function randomizeAll() {
   PARTS.forEach(part => {
-    /* 随机时排除特殊款（SULLY） */
-    const randomPool = part.items.filter(it => !it.special);
+    /* 随机时排除特殊款（SULLY）与「已被新款取代的老画风」（该类目有新款时老款 roll 不到） */
+    const randomPool = part.items.filter(it => !it.special && !isFoldedLegacy(part, it));
     if (part.multi) {
       const maxN = part.key === "decor" ? 4 : 3;
       const n = Math.floor(Math.random() * maxN);
@@ -2085,8 +2101,8 @@ function randomizeAll() {
     } else {
       const item = randomPool.length > 0
         ? randomPool[Math.floor(Math.random() * randomPool.length)]
-        : part.items[Math.floor(Math.random() * part.items.length)];
-      state.selected[part.key] = item.id;
+        : null;
+      state.selected[part.key] = item ? item.id : null;
     }
   });
   /* 头发联动重置 */
@@ -2534,6 +2550,11 @@ renderCharacter = function() {
   _origRenderCharacter.apply(this, arguments);
   saveDraft();
 };
+
+/* 快照当前 PARTS 里的内置部件 id 作为「老画风」——必须在任何 mergeExtraItems（下方 fetch
+   内置素材包 / 父框架 postMessage 注入自定义部件）之前跑，此刻 PARTS 只含硬编码内置部件。
+   special（SULLY 专属）不算老画风，保留它原有的 SULLY 门控逻辑。 */
+PARTS.forEach(p => (p.items || []).forEach(it => { if (!it.special) LEGACY_IDS.add(it.id); }));
 
 renderTabs();
 renderPanel();
