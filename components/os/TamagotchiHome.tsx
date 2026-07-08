@@ -372,56 +372,70 @@ const LiveBoard = React.memo<{
     onClock: () => void;
 }>(({ customImg, fg, avatar, night, hh, mm, phase, onClock }) => {
     const darkFace = phase === 'night' || phase === 'late';
-    // 排版层文字色：有自定义图 → 用户选的颜色（默认白）+ 阴影保证任何图上可读；
-    // 默认渐变底偏浅 → 走主题深字，无阴影
-    const inkFg = customImg ? fg : 'var(--tg-grape)';
-    const inkSub = customImg ? fg : 'var(--tg-fade)';
-    const inkShadow = customImg ? '0 1px 5px rgba(0,0,0,0.5), 0 0 2px rgba(0,0,0,0.35)' : 'none';
+    const bgImg = customImg || avatar || '';
+    // 主播风暗色玻璃板：底图永远压暗，文字默认白（可自定义色），点缀走主题强调色
+    const glow = '0 0 10px var(--tg-hotglow60), 0 1px 3px rgba(0,0,0,0.6)';
     return (
-        /* 一整张 banner：图（或渐变底+头像）铺满，营业中/电子时间都是排版在图上的
-           文字层——没有任何小色块分区，大家都是 banner 的一部分 */
-        <div className="absolute inset-x-4 z-[32] rounded-[1.1rem] overflow-hidden h-[4.2rem]"
-            style={{ top: 'calc(var(--safe-top, 0px) + 4.55rem)', border: `1.5px solid ${PAL.frameSoft}`, boxShadow: '0 5px 14px var(--tg-glow25)' }}>
-            {/* 底：自定义图铺满，或 主题渐变 + 星芒 */}
-            {customImg ? (
-                <TokenImg value={customImg} className="absolute inset-0 w-full h-full object-cover" draggable={false} loading="lazy" alt="" />
+        <div className="absolute inset-x-4 z-[32] rounded-[1.15rem] overflow-hidden h-[4.8rem]"
+            style={{ top: 'calc(var(--safe-top, 0px) + 4.55rem)', border: `1.5px solid ${PAL.frameSoft}`, boxShadow: '0 6px 16px rgba(0,0,0,0.35)' }}>
+            {/* 底：自定义图，或角色头像拉伸铺底（攻略本选人那味儿）；统一压暗出玻璃感 */}
+            {bgImg ? (
+                <TokenImg value={bgImg} className="absolute inset-0 w-full h-full object-cover" draggable={false} loading="lazy" alt="" />
             ) : (
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, var(--tg-bg-top), var(--tg-bg-bot))' }}>
-                    <Sparkles items={[[62, 20, 8, PAL.frame, 0.7, true], [50, 78, 7, PAL.frame, 0.5], [72, 56, 6, PAL.gold, 0.7, true]]} />
-                </div>
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(120deg, #241f3e, #17132b)' }} />
             )}
-            {/* 排版层：头像（仅默认底）+ 营业中 + 电子时间，全部直接躺在 banner 上 */}
-            <div className="absolute inset-0 flex items-center gap-2.5 px-3">
-                {!customImg && (
-                    <div className="w-10 h-10 rounded-full p-[2px] shrink-0" style={{ border: `1.5px solid ${PAL.frame}`, boxShadow: '0 0 8px var(--tg-frame-a30)' }}>
-                        <div className="w-full h-full rounded-full overflow-hidden" style={{ background: PAL.cardHi }}>
-                            {avatar ? <img src={avatar} className="w-full h-full object-cover" alt="" loading="lazy" draggable={false} /> : <span className="w-full h-full flex items-center justify-center text-[13px]" style={{ color: PAL.fade }}>✦</span>}
-                        </div>
-                    </div>
-                )}
-                <div className="min-w-0 leading-none">
-                    <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{
-                            background: night ? '#9a94b8' : '#7cd992',
-                            boxShadow: night ? 'none' : '0 0 6px #7cd992',
-                            animation: night ? undefined : 'tama-twinkle 1.8s ease-in-out infinite',
-                        }} />
-                        <span className="text-[13px] font-bold truncate" style={{ fontFamily: FONT_CN, color: inkFg, textShadow: inkShadow }}>{night ? '休息中' : '营业中'}</span>
-                    </div>
-                    <div className="text-[6.5px] font-bold mt-[5px] tracking-[0.3em]" style={{ fontFamily: FONT_PX, color: inkSub, textShadow: inkShadow }}>{night ? 'CLOSED' : 'ON AIR'}</div>
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(100deg, rgba(15,11,28,0.88) 0%, rgba(15,11,28,0.55) 48%, rgba(15,11,28,0.82) 100%)' }} />
+            {/* 顶部玻璃高光丝 */}
+            <div className="absolute inset-x-0 top-0 h-[40%]" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.09), transparent)' }} />
+
+            {/* 赛博角标装饰层（全静态）：三点 / 角括线 / 准星 / 闪电 / 星芒 / 虚线 */}
+            <div className="absolute inset-0 pointer-events-none">
+                <div className="absolute top-2 right-2.5 flex gap-1">
+                    {[0, 1, 2].map(i => <span key={i} className="w-[5px] h-[5px] rounded-full" style={{ border: '1px solid rgba(255,255,255,0.55)' }} />)}
                 </div>
-                <div className="flex-1" />
-                {/* 电子时间：裸排在 banner 右侧（无底无框），点一下进日程 */}
-                <button onClick={onClock} className="shrink-0 text-right leading-none active:scale-95 transition-transform pr-0.5">
-                    <div className="flex items-center justify-end gap-1.5">
-                        <span className="w-[13px] h-[13px] shrink-0" style={{ color: inkFg, filter: customImg ? 'drop-shadow(0 1px 3px rgba(0,0,0,0.5))' : 'none' }}>
+                <span className="absolute top-1.5 left-2 w-5 h-3" style={{ borderLeft: '1px solid var(--tg-frame-a30)', borderTop: '1px solid var(--tg-frame-a30)' }} />
+                <span className="absolute bottom-1.5 right-2 w-5 h-3" style={{ borderRight: '1px solid var(--tg-frame-a30)', borderBottom: '1px solid var(--tg-frame-a30)' }} />
+                <span className="absolute bottom-2 left-2 right-[55%] border-t border-dashed" style={{ borderColor: 'var(--tg-frame-a22)' }} />
+                <svg viewBox="0 0 24 24" className="absolute left-2 bottom-4 w-2.5 h-2.5" fill="var(--tg-hot)" opacity="0.8"><path d="M13 2 4.5 13.5h5L10 22l8.5-11.5h-5z" /></svg>
+                <svg viewBox="0 0 24 24" className="absolute right-3 bottom-4 w-3 h-3" fill="none" stroke="var(--tg-frame)" strokeWidth="1.4" opacity="0.5"><circle cx="12" cy="12" r="5.5" /><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4" /></svg>
+                <Sparkles items={[[3.5, 26, 9, '#fff', 0.85, true], [30, 16, 7, 'var(--tg-pink)', 0.8], [35, 78, 6, '#fff', 0.6], [63, 24, 7, '#fff', 0.7, true], [96, 55, 7, 'var(--tg-pink)', 0.7, true]]} />
+            </div>
+
+            {/* 排版层：左 LIVE+营业中+ON AIR ／ 右 TIME+大数字+渐变下划线 */}
+            <div className="absolute inset-0 flex items-center justify-between pl-4 pr-3.5">
+                <div className="relative min-w-0 leading-none">
+                    {/* 左上 /// 强调斜线 */}
+                    <div className="absolute -top-2.5 -left-1.5 flex gap-[3px]" style={{ transform: 'rotate(-18deg)' }}>
+                        {[7, 10, 8].map((h2, i) => <span key={i} className="w-[3px] rounded-full" style={{ height: h2, background: 'var(--tg-hot)', boxShadow: '0 0 5px var(--tg-hotglow60)' }} />)}
+                    </div>
+                    <div className="flex items-center gap-1.5 mb-1.5 pl-3">
+                        <span className="px-2 py-[2px] rounded-full flex items-center gap-1"
+                            style={{ background: night ? 'rgba(140,135,165,0.45)' : 'linear-gradient(135deg, var(--tg-pink), var(--tg-hot))', border: '1px solid rgba(255,255,255,0.5)' }}>
+                            <span className="w-1 h-1 rounded-full bg-white" style={{ animation: night ? undefined : 'tama-twinkle 1.8s ease-in-out infinite' }} />
+                            <span className="text-[7px] font-bold tracking-[0.22em] text-white" style={{ fontFamily: FONT_PX }}>{night ? 'REST' : 'LIVE'}</span>
+                        </span>
+                    </div>
+                    <div className="text-[19px] font-bold truncate" style={{ fontFamily: FONT_CN, color: fg, textShadow: glow, letterSpacing: '0.12em' }}>{night ? '休息中' : '营业中'}</div>
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                        <span className="text-[6px] tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.45)' }}>·····</span>
+                        <span className="text-[7px] font-bold tracking-[0.34em]" style={{ fontFamily: FONT_PX, color: 'rgba(255,255,255,0.75)' }}>{night ? 'OFF AIR' : 'ON AIR'}</span>
+                        <span className="text-[6px] tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.45)' }}>·····</span>
+                    </div>
+                </div>
+                {/* 右：电子时间（点一下进日程） */}
+                <button onClick={onClock} className="shrink-0 leading-none text-right active:scale-95 transition-transform">
+                    <div className="flex items-center justify-end gap-1.5 mb-1">
+                        <span className="w-[11px] h-[11px]" style={{ color: 'rgba(255,255,255,0.7)' }}>
                             {darkFace ? ICON.moon : (
-                                <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6" /></svg>
+                                <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="8" /><path d="M12 7.5V12l3 2" /></svg>
                             )}
                         </span>
-                        <span className="text-[19px] font-bold tabular-nums" style={{ fontFamily: FONT_PX, color: inkFg, textShadow: inkShadow, letterSpacing: '0.04em' }}>{hh}:{mm}</span>
+                        <span className="text-[7px] font-bold tracking-[0.34em]" style={{ fontFamily: FONT_PX, color: 'rgba(255,255,255,0.7)' }}>{phase === 'late' ? '夜深啦' : 'TIME'}</span>
                     </div>
-                    {phase === 'late' && <div className="text-[7.5px] mt-[4px] tracking-[0.22em]" style={{ fontFamily: FONT_CN, color: inkSub, textShadow: inkShadow }}>夜深啦</div>}
+                    <div className="text-[24px] font-bold tabular-nums" style={{ fontFamily: FONT_PX, color: fg, textShadow: glow, letterSpacing: '0.06em' }}>{hh}:{mm}</div>
+                    <div className="relative mt-1.5 h-[2px] rounded-full" style={{ background: 'linear-gradient(90deg, transparent, var(--tg-hot) 30%, var(--tg-hot) 70%, transparent)' }}>
+                        <span className="absolute -top-[4.5px] right-[18%] text-[9px] leading-none" style={{ color: 'var(--tg-pink)' }}>✦</span>
+                    </div>
                 </button>
             </div>
         </div>
@@ -430,7 +444,7 @@ const LiveBoard = React.memo<{
 
 // ─── 天花板小挂饰：从看板下垂两颗 ✦，轻轻摇（transform-only）────────────
 const CeilingCharms = React.memo(() => (
-    <div className="absolute inset-x-0 z-[28] pointer-events-none" style={{ top: 'calc(var(--safe-top, 0px) + 8.6rem)' }}>
+    <div className="absolute inset-x-0 z-[28] pointer-events-none" style={{ top: 'calc(var(--safe-top, 0px) + 9.15rem)' }}>
         {[
             { x: '38%', drop: 13, size: 9, color: PAL.gold },
             { x: '60%', drop: 22, size: 8, color: PAL.frame },
@@ -638,7 +652,7 @@ const FullStage = React.memo<{
 // 跟随界面风格（细线半透卡 + 内描边），端端正正不摇晃。
 const HangingSign = React.memo<{ text: string; onTap: () => void }>(({ text, onTap }) => (
     <div className="absolute left-[6%] z-[30] flex flex-col items-center pointer-events-none"
-        style={{ top: 'calc(var(--safe-top, 0px) + 8.6rem)' }}>
+        style={{ top: 'calc(var(--safe-top, 0px) + 9.15rem)' }}>
         {/* 两根吊绳（挂在顶部横幅正下方，不悬空） */}
         <div className="flex gap-6">
             <span style={{ width: 1.5, height: 24, background: PAL.frameSoft }} />
@@ -665,7 +679,7 @@ const DayScroll = React.memo<{ slots: { time: string; text: string; passed: bool
         <div className="absolute inset-0 z-[85]" onClick={onClose} />
         <div className="absolute left-4 right-[22%] z-[86] rounded-2xl px-4 pt-3 pb-4 animate-pop-in"
             style={{
-                top: 'calc(var(--safe-top, 0px) + 12.2rem)',
+                top: 'calc(var(--safe-top, 0px) + 12.6rem)',
                 background: PAL.cardHi,
                 border: `1.5px solid ${PAL.frameSoft}`,
                 boxShadow: '0 10px 26px var(--tg-glow35)',
@@ -705,7 +719,7 @@ const WorldPortals = React.memo<{ onHome: () => void; onPixel: () => void; onDre
         { key: 'dream', label: '梦境', en: 'DREAM', icon: ICON.moon, onClick: onDream },
     ];
     return (
-        <div className="absolute right-3 z-[35] flex flex-col items-center" style={{ top: 'calc(var(--safe-top, 0px) + 9.6rem)' }}>
+        <div className="absolute right-3 z-[35] flex flex-col items-center" style={{ top: 'calc(var(--safe-top, 0px) + 10rem)' }}>
             {portals.map((p, i) => (
                 <React.Fragment key={p.key}>
                     {i > 0 && (
