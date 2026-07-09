@@ -15,6 +15,8 @@ import { DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
 import ImpressionPanel from '../components/character/ImpressionPanel';
 import RoomPlatePanel from '../components/character/RoomPlatePanel';
 import MemoryArchivist from '../components/character/MemoryArchivist';
+import ChibiStudio, { ChibiShelfPanel } from '../components/character/ChibiStudio';
+import { characterLaunch } from '../utils/characterLaunch';
 import { safeFetchJson, extractContent } from '../utils/safeApi';
 import { fetchMiniMaxVoices, MiniMaxVoiceItem } from '../utils/minimaxVoice';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
@@ -24,35 +26,93 @@ import { COMMON_TIMEZONES } from '../utils/timezone';
 import { toMountedWorldbook } from '../utils/worldbook';
 import { stripSensitiveCardFields } from '../utils/characterCard';
 import { confirmExportSafety } from '../utils/exportGuard';
+import { sortCharacterGroups, GROUP_FILTER_UNGROUPED } from '../components/character/CharacterGroupFilter';
+
+// ── 神经链接 · 游戏风视觉件 ─────────────────────────────────
+// 列表页整体走「淡紫星光 + 玻璃饰带」的游戏 UI：六边形功能钮、饰带分组条、
+// 华丽头像框（四向菱形饰角）+ 卡面暗纹章。仅列表页换装，编辑页不动。
+
+/** 尖顶六边形（顶栏功能钮用） */
+const HEX_CLIP = 'polygon(50% 0%, 100% 26%, 100% 74%, 50% 100%, 0% 74%, 0% 26%)';
+
+/** 背景星光（固定坐标，避免重渲染时抖动）。
+ *  twinkle=true 的才做呼吸动画——全员无限 pulse 会让低端机每帧重绘背景，
+ *  只挑 4 颗动、其余静止，观感几乎一样但省掉大半持续重绘。 */
+const LINK_SPARKLES: { top: string; left: string; s: number; o: number; twinkle?: boolean }[] = [
+    { top: '5%', left: '6%', s: 13, o: 0.85, twinkle: true }, { top: '11%', left: '86%', s: 9, o: 0.6 },
+    { top: '22%', left: '3%', s: 8, o: 0.5 }, { top: '30%', left: '92%', s: 12, o: 0.7, twinkle: true },
+    { top: '46%', left: '7%', s: 9, o: 0.45 }, { top: '55%', left: '88%', s: 8, o: 0.55, twinkle: true },
+    { top: '68%', left: '4%', s: 11, o: 0.5 }, { top: '78%', left: '91%', s: 9, o: 0.6, twinkle: true },
+    { top: '90%', left: '10%', s: 8, o: 0.45 }, { top: '17%', left: '46%', s: 7, o: 0.35 },
+];
+
+/** 顶栏六边形功能钮：白玻璃双层六边形 + 底部小字标签 */
+const HexButton: React.FC<{ label: string; title?: string; onClick: () => void; children: React.ReactNode }> = ({ label, title, onClick, children }) => (
+    <button onClick={onClick} title={title} className="flex flex-col items-center gap-1.5 active:scale-90 transition-transform">
+        <span className="relative w-11 h-12 flex items-center justify-center" style={{ filter: 'drop-shadow(0 3px 6px rgba(130,110,200,0.28))' }}>
+            <span className="absolute inset-0" style={{ clipPath: HEX_CLIP, background: 'linear-gradient(180deg, #d8cff2, #b5a5e0)' }} />
+            <span className="absolute inset-[2px]" style={{ clipPath: HEX_CLIP, background: 'linear-gradient(180deg, #ffffff, #f4f0fd)' }} />
+            <span className="relative z-10 text-indigo-500">{children}</span>
+        </span>
+        <span className="text-[11px] text-indigo-900/60 font-medium tracking-wider">{label}</span>
+    </button>
+);
+
+/** 头像饰角四向定位（rotate-45 小菱形） */
+const AVATAR_DIAMOND_POS = [
+    'top-0 left-1/2 -translate-x-1/2 -translate-y-[7px]',
+    'bottom-0 left-1/2 -translate-x-1/2 translate-y-[7px]',
+    'left-0 top-1/2 -translate-y-1/2 -translate-x-[7px]',
+    'right-0 top-1/2 -translate-y-1/2 translate-x-[7px]',
+];
 
 const CharacterCard: React.FC<{
     char: CharacterProfile;
+    /** 当前激活（正在聊）的角色走粉色高亮 */
+    active?: boolean;
     onClick: () => void;
     onDelete: (e: React.MouseEvent) => void;
-}> = ({ char, onClick, onDelete }) => (
+}> = ({ char, active, onClick, onDelete }) => (
     <div
         onClick={onClick}
-        className="relative p-4 rounded-3xl border bg-white/40 border-white/40 hover:bg-white/60 hover:scale-[1.01] transition-all duration-300 cursor-pointer group shadow-sm shrink-0"
+        className={`relative p-4 rounded-[26px] border transition-transform duration-200 cursor-pointer group shrink-0 overflow-hidden hover:scale-[1.01] ${
+            active
+                ? 'border-pink-200/90 shadow-[0_5px_14px_rgba(244,163,202,0.25)]'
+                : 'border-white/70 shadow-[0_4px_10px_rgba(140,120,200,0.12)]'
+        }`}
+        style={{
+            background: active
+                ? 'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,238,247,0.85) 100%)'
+                : 'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(243,239,255,0.72) 100%)',
+        }}
     >
+        {/* 卡面暗纹章（纯装饰） */}
+        <span className={`absolute right-12 top-1/2 -translate-y-1/2 text-[56px] leading-none pointer-events-none select-none ${active ? 'text-pink-400/10' : 'text-indigo-400/10'}`}>❋</span>
         <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-full bg-slate-100 border border-white/50 overflow-hidden relative shadow-inner">
-                <div className="absolute inset-0 bg-slate-100/50"></div> 
-                <img src={char.avatar} className="w-full h-full object-cover relative z-10" alt={char.name} />
+            {/* 华丽头像框：渐变描边 + 四向菱形饰角 */}
+            <div className="relative w-16 h-16 shrink-0">
+                <div className={`absolute -inset-[2px] rounded-full ${active ? 'bg-gradient-to-br from-pink-300 via-pink-100 to-violet-200' : 'bg-gradient-to-br from-violet-300 via-white to-violet-200'}`}></div>
+                <div className="absolute inset-0 rounded-full bg-white overflow-hidden border-2 border-white shadow-inner">
+                    <img src={char.avatar} className="w-full h-full object-cover" alt={char.name} />
+                </div>
+                {AVATAR_DIAMOND_POS.map(pos => (
+                    <span key={pos} className={`absolute ${pos} w-2 h-2 rotate-45 rounded-[2px] border shadow-sm ${active ? 'bg-pink-100 border-pink-300' : 'bg-white border-violet-300'}`} />
+                ))}
             </div>
-            <div className="flex-1 min-w-0">
-                <h3 className="font-medium truncate text-slate-700">
+            <div className="flex-1 min-w-0 relative z-10">
+                <h3 className="font-serif text-xl font-bold truncate text-indigo-950 tracking-wide">
                     {char.name}
                 </h3>
-                <p className="text-xs text-slate-400 truncate mt-0.5 font-light">
+                <p className={`text-xs truncate mt-1 font-light ${active ? 'text-pink-400/80' : 'text-indigo-400/70'}`}>
                     {char.description || '暂无描述'}
                 </p>
             </div>
         </div>
-        <button 
+        <button
             onClick={onDelete}
-            className="absolute top-3 right-3 p-2 rounded-full text-slate-300 hover:bg-red-50 hover:text-red-400 active:bg-red-100 active:text-red-500 transition-all z-10"
+            className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 border border-white text-violet-300 shadow-sm hover:text-pink-400 hover:border-pink-200 active:scale-90 transition-all z-10"
         >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
         </button>
@@ -60,11 +120,32 @@ const CharacterCard: React.FC<{
 );
 
 const Character: React.FC = () => {
-  const { closeApp, openApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, deleteCharacter, apiConfig, addToast, userProfile, worldbooks, addWorldbook } = useOS();
-  const [view, setView] = useState<'list' | 'detail'>('list');
-  const [charPage, setCharPage] = useState(0); // 角色列表分页（每页 6 个）
-  const [detailTab, setDetailTab] = useState<'identity' | 'memory' | 'impression' | 'plates'>('identity');
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const { closeApp, openApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, deleteCharacter, characterGroups, createCharacterGroup, renameCharacterGroup, deleteCharacterGroup, apiConfig, addToast, userProfile, worldbooks, addWorldbook } = useOS();
+  const launchIntent = characterLaunch.peek();
+  const [view, setView] = useState<'list' | 'detail'>(() => launchIntent ? 'detail' : 'list');
+  const [charPage, setCharPage] = useState(0); // 角色列表分页（每页 6 个，仅未建分组时）
+  // 分组展开状态：存"已展开"的分组 id（未记录 = 收起）。跨会话记住，key 见下
+  const [expandedGroups, setExpandedGroups] = useState<string[]>(() => {
+      try {
+          const raw = localStorage.getItem('os_char_groups_expanded');
+          if (raw) {
+              const arr = JSON.parse(raw);
+              if (Array.isArray(arr)) return arr;
+          }
+      } catch {}
+      return [GROUP_FILTER_UNGROUPED]; // 首次进入只展开「未分组」，命名分组默认收起
+  });
+  const toggleGroupExpanded = (id: string) => {
+      setExpandedGroups(prev => {
+          const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+          try { localStorage.setItem('os_char_groups_expanded', JSON.stringify(next)); } catch {}
+          return next;
+      });
+  };
+  const [detailTab, setDetailTab] = useState<'identity' | 'memory' | 'impression' | 'plates' | 'chibi'>(() => launchIntent?.openChibiStudio ? 'chibi' : 'identity');
+  // QQ捏人工坊（手办柜）全屏覆盖层
+  const [showChibiStudio, setShowChibiStudio] = useState(() => !!launchIntent?.openChibiStudio);
+  const [editingId, setEditingId] = useState<string | null>(() => launchIntent?.charId || null);
   const [formData, setFormData] = useState<CharacterProfile | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
   // 头像 URL 输入的 draft, 不逐字 commit 到 formData.avatar —— 否则每输入一个字符,
@@ -78,6 +159,9 @@ const Character: React.FC = () => {
           .then(s => setHiddenLifeModules(s?.hiddenModules || []))
           .catch(() => {});
   }, []);
+  useEffect(() => {
+      characterLaunch.consume();
+  }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cardImportRef = useRef<HTMLInputElement>(null);
   
@@ -90,6 +174,10 @@ const Character: React.FC = () => {
   const [showBatchModal, setShowBatchModal] = useState(false); 
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<string | null>(null);
   const [showWorldbookModal, setShowWorldbookModal] = useState(false); // New Modal
+  const [showGroupModal, setShowGroupModal] = useState(false); // 角色分组管理
+  const [newGroupName, setNewGroupName] = useState('');
+  // 编辑页「新建分组并指派」的内联输入
+  const [detailGroupDraft, setDetailGroupDraft] = useState<string | null>(null);
 
   const [importText, setImportText] = useState('');
   const [exportText, setExportText] = useState('');
@@ -230,6 +318,17 @@ const Character: React.FC = () => {
           setView('list');
           setEditingId(null);
       } else closeApp();
+  };
+
+  const handleAddGroup = async () => {
+      const name = newGroupName.trim();
+      if (!name) return;
+      if (characterGroups.some(g => g.name === name)) {
+          addToast('已有同名分组', 'error');
+          return;
+      }
+      await createCharacterGroup(name);
+      setNewGroupName('');
   };
 
   const handleChange = (field: keyof CharacterProfile, value: any) => {
@@ -962,26 +1061,115 @@ ${isInitialGeneration ? `
   return (
     <div className="h-full w-full bg-slate-50/30 font-light relative">
        {view === 'list' ? (
-           <div className="flex flex-col h-full animate-fade-in">
-               {/* INCREASED PADDING TOP HERE */}
+           <div className="flex flex-col h-full animate-fade-in relative overflow-hidden"
+                style={{ background: 'linear-gradient(160deg, #efeaf9 0%, #e6def5 45%, #ddd3f0 100%)' }}>
+               {/* 氛围装饰层：柔光 + 星点 + 蝶影，纯装饰不挡点击。
+                   translateZ(0) 把整层提成独立合成层，滚动列表时这层不参与重绘 */}
+               <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ transform: 'translateZ(0)' }}>
+                   <div className="absolute -top-24 -left-20 w-72 h-72 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.6), transparent 70%)' }} />
+                   <div className="absolute top-1/3 -right-16 w-56 h-56 rounded-full" style={{ background: 'radial-gradient(circle, rgba(196,181,253,0.35), transparent 70%)' }} />
+                   <div className="absolute bottom-0 -left-10 w-64 h-64 rounded-full" style={{ background: 'radial-gradient(circle, rgba(244,214,237,0.4), transparent 70%)' }} />
+                   {LINK_SPARKLES.map((p, i) => (
+                       <span key={i} className={`absolute text-white select-none ${p.twinkle ? 'animate-pulse' : ''}`}
+                             style={{ top: p.top, left: p.left, fontSize: p.s, opacity: p.o, textShadow: '0 0 8px rgba(255,255,255,0.9)',
+                                      ...(p.twinkle ? { animationDelay: `${i * 0.6}s`, willChange: 'opacity' } : {}) }}>✦</span>
+                   ))}
+                   <span className="absolute top-[3%] left-[30%] text-2xl select-none" style={{ filter: 'grayscale(1) brightness(1.9)', opacity: 0.35, transform: 'rotate(-18deg)' }}>🦋</span>
+                   <span className="absolute top-[58%] right-[6%] text-lg select-none" style={{ filter: 'grayscale(1) brightness(1.9)', opacity: 0.22, transform: 'rotate(14deg)' }}>🦋</span>
+               </div>
                {/* safe-area: 原本固定 pt-16(4rem) 顶部留白，改成 max(4rem, 刘海高度)，
-                   既保住原来的呼吸感，又保证内容在更高刘海设备上不被挡。此栏无背景，
-                   透出页面 bg-slate-50/30，安全区条同色无缝 */}
-               <div className="px-6 pb-4 shrink-0 flex items-center justify-between" style={{ paddingTop: 'max(4rem, var(--safe-top))' }}>
-                   <div><h1 className="text-2xl font-light text-slate-800 tracking-tight">神经链接</h1><p className="text-xs text-slate-400 mt-1">已建立 {characters.length} 个角色连接</p></div>
-                   <div className="flex gap-2">
-                        <button onClick={() => cardImportRef.current?.click()} className="p-2 rounded-full bg-white/40 hover:bg-white/80 transition-colors text-slate-600" title="导入角色卡">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                   既保住原来的呼吸感，又保证内容在更高刘海设备上不被挡 */}
+               <div className="px-6 pb-4 shrink-0 flex items-start justify-between relative z-10" style={{ paddingTop: 'max(3.5rem, var(--safe-top))' }}>
+                   <div className="relative">
+                       <span className="absolute -top-4 -left-3 text-violet-300 text-sm select-none">✦</span>
+                       <span className="absolute top-0 -right-4 text-white text-[10px] select-none" style={{ textShadow: '0 0 6px rgba(255,255,255,0.9)' }}>✦</span>
+                       <h1 className="text-[30px] font-serif font-bold tracking-wide leading-tight" style={{ color: '#3d3470', textShadow: '0 2px 14px rgba(255,255,255,0.85)' }}>神经链接</h1>
+                       <div className="h-px w-36 mt-1.5 bg-gradient-to-r from-violet-300/90 via-violet-200/50 to-transparent" />
+                       <p className="text-xs text-violet-400/90 mt-2">已建立 <span className="font-bold text-violet-500">{characters.length}</span> 个角色连接</p>
+                   </div>
+                   <div className="flex gap-3 pt-1">
+                        <HexButton label="分组" title="角色分组管理" onClick={() => setShowGroupModal(true)}>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                            </svg>
+                        </HexButton>
+                        <HexButton label="导入" title="导入角色卡" onClick={() => cardImportRef.current?.click()}>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
                             </svg>
-                        </button>
+                        </HexButton>
+                        <HexButton label="关闭" title="关闭" onClick={closeApp}>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                        </HexButton>
                         <input type="file" ref={cardImportRef} className="hidden" accept=".json" onChange={handleImportCard} />
-                        
-                        <button onClick={closeApp} className="p-2 rounded-full bg-white/40 hover:bg-white/80 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-slate-600"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></button>
                    </div>
                </div>
-               <div className="flex-1 overflow-y-auto px-5 pb-20 no-scrollbar flex flex-col gap-3">
+               <div className="flex-1 overflow-y-auto px-5 pb-20 no-scrollbar flex flex-col gap-3 relative z-10">
                    {(() => {
+                       // 建过分组 → 按组折叠展开（不再分页，分组本身就把列表变短了）；
+                       // 没建过分组 → 维持原来的分页列表，零变化。
+                       if (characterGroups.length > 0) {
+                           const knownGroupIds = new Set(characterGroups.map(g => g.id));
+                           const sections = [
+                               ...sortCharacterGroups(characterGroups).map(g => ({
+                                   id: g.id,
+                                   name: g.name,
+                                   chars: characters.filter(c => c.groupId === g.id),
+                               })),
+                               {
+                                   id: GROUP_FILTER_UNGROUPED,
+                                   name: '未分组',
+                                   // groupId 指向已删分组的角色也归到未分组，不会凭空消失
+                                   chars: characters.filter(c => !c.groupId || !knownGroupIds.has(c.groupId)),
+                               },
+                           ].filter(s => s.id !== GROUP_FILTER_UNGROUPED || s.chars.length > 0);
+                           return (
+                               <>
+                                   {sections.map(section => {
+                                       const expanded = expandedGroups.includes(section.id);
+                                       return (
+                                           <div key={section.id} className="shrink-0">
+                                               {/* 饰带式分组条：斜切角玻璃条 + 菱形闪光 + 数量胶囊。
+                                                   不用 filter:drop-shadow 描边框阴影——filter 要走离屏渲染，滚动时每条饰带
+                                                   都重算会卡；改用裁剪面内部的 inset 阴影压出底边层次，观感接近、开销可忽略 */}
+                                               <button onClick={() => toggleGroupExpanded(section.id)} className="relative w-full h-11 flex items-center gap-2.5 px-6 text-left active:scale-[0.99] transition-transform">
+                                                   <span className="absolute inset-0" style={{ clipPath: 'polygon(16px 0, calc(100% - 16px) 0, 100% 100%, 0 100%)', background: 'linear-gradient(180deg, rgba(255,255,255,0.94), rgba(255,255,255,0.62))', boxShadow: 'inset 0 -2px 4px rgba(130,110,190,0.14), inset 0 1px 0 rgba(255,255,255,0.9)' }} />
+                                                   <svg viewBox="0 0 12 12" className={`relative z-10 w-2.5 h-2.5 text-violet-400 transition-transform ${expanded ? '' : '-rotate-90'}`}>
+                                                       <path d="M2 4l4 5 4-5z" fill="currentColor" />
+                                                   </svg>
+                                                   <span className="relative z-10 text-violet-400 text-xs select-none">✦</span>
+                                                   <span className="relative z-10 font-serif text-[15px] font-bold text-indigo-950 tracking-widest truncate">{section.name}</span>
+                                                   <span className="relative z-10 min-w-[30px] px-2 py-0.5 rounded-full bg-white border border-violet-200/80 text-[11px] text-violet-500 text-center font-medium tabular-nums shadow-sm">{section.chars.length}</span>
+                                                   <span className="relative z-10 ml-auto text-violet-300/80 text-[10px] tracking-[0.3em] select-none">✦ ✧</span>
+                                               </button>
+                                               {expanded && (
+                                                   <div className="flex flex-col gap-3 mt-2">
+                                                       {section.chars.map(char => (
+                                                           <CharacterCard
+                                                               key={char.id}
+                                                               char={char}
+                                                               active={char.id === activeCharacterId}
+                                                               onClick={() => { setEditingId(char.id); setView('detail'); }}
+                                                               onDelete={(e) => {
+                                                                   e.stopPropagation();
+                                                                   setDeleteConfirmTarget(char.id);
+                                                               }}
+                                                           />
+                                                       ))}
+                                                       {section.chars.length === 0 && (
+                                                           <div className="text-xs text-violet-300 px-3 pb-1">空分组——在角色「设定」页里指派</div>
+                                                       )}
+                                                   </div>
+                                               )}
+                                           </div>
+                                       );
+                                   })}
+                                   <button onClick={addCharacter} className="w-full py-4 rounded-[26px] border border-dashed border-violet-300/80 text-violet-400 text-sm bg-white/30 hover:bg-white/60 transition-all flex items-center justify-center gap-2 shrink-0">
+                                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>新建链接 <span className="text-violet-300 text-xs select-none">✦</span>
+                                   </button>
+                               </>
+                           );
+                       }
                        const PAGE_SIZE = 6;
                        const totalPages = Math.max(1, Math.ceil(characters.length / PAGE_SIZE));
                        const page = Math.min(charPage, totalPages - 1);
@@ -992,6 +1180,7 @@ ${isInitialGeneration ? `
                                    <CharacterCard
                                        key={char.id}
                                        char={char}
+                                       active={char.id === activeCharacterId}
                                        onClick={() => { setEditingId(char.id); setView('detail'); }}
                                        onDelete={(e) => {
                                            e.stopPropagation();
@@ -999,18 +1188,18 @@ ${isInitialGeneration ? `
                                        }}
                                    />
                                ))}
-                               <button onClick={addCharacter} className="w-full py-4 rounded-3xl border border-dashed border-slate-300 text-slate-400 text-sm hover:bg-white/30 transition-all flex items-center justify-center gap-2 shrink-0">
-                                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>新建链接
+                               <button onClick={addCharacter} className="w-full py-4 rounded-[26px] border border-dashed border-violet-300/80 text-violet-400 text-sm bg-white/30 hover:bg-white/60 transition-all flex items-center justify-center gap-2 shrink-0">
+                                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>新建链接 <span className="text-violet-300 text-xs select-none">✦</span>
                                </button>
                                {totalPages > 1 && (
                                    <div className="flex items-center justify-center gap-3 pt-2 shrink-0">
                                        <button onClick={() => setCharPage(Math.max(0, page - 1))} disabled={page === 0}
-                                           className="w-9 h-9 rounded-full bg-white/60 border border-white/50 shadow-sm flex items-center justify-center text-slate-500 disabled:opacity-30 active:scale-90 transition-all">
+                                           className="w-9 h-9 rounded-full bg-white/70 border border-violet-100 shadow-sm flex items-center justify-center text-violet-400 disabled:opacity-30 active:scale-90 transition-all">
                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                                        </button>
-                                       <span className="text-sm text-slate-500 font-medium tabular-nums min-w-[40px] text-center">{page + 1}/{totalPages}</span>
+                                       <span className="text-sm text-violet-500 font-medium tabular-nums min-w-[40px] text-center">{page + 1}/{totalPages}</span>
                                        <button onClick={() => setCharPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1}
-                                           className="w-9 h-9 rounded-full bg-white/60 border border-white/50 shadow-sm flex items-center justify-center text-slate-500 disabled:opacity-30 active:scale-90 transition-all">
+                                           className="w-9 h-9 rounded-full bg-white/70 border border-violet-100 shadow-sm flex items-center justify-center text-violet-400 disabled:opacity-30 active:scale-90 transition-all">
                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
                                        </button>
                                    </div>
@@ -1036,6 +1225,7 @@ ${isInitialGeneration ? `
                        <button onClick={() => setDetailTab('memory')} className={`pb-2 transition-colors relative ${detailTab === 'memory' ? 'text-slate-800' : ''}`}>记忆 ({(formData.memories || []).length}){detailTab === 'memory' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
                        <button onClick={() => setDetailTab('impression')} className={`pb-2 transition-colors relative ${detailTab === 'impression' ? 'text-slate-800' : ''}`}>印象{detailTab === 'impression' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
                        <button onClick={() => setDetailTab('plates')} className={`pb-2 transition-colors relative ${detailTab === 'plates' ? 'text-slate-800' : ''}`}>门牌{detailTab === 'plates' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
+                       <button onClick={() => setDetailTab('chibi')} className={`pb-2 transition-colors relative ${detailTab === 'chibi' ? 'text-slate-800' : ''}`}>手办{detailTab === 'chibi' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
                    </div>
                  </div>
                </div>
@@ -1088,7 +1278,44 @@ ${isInitialGeneration ? `
                                    />
                                </div>
                            </div>
-                           
+
+                           <div>
+                               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">分组</label>
+                               <div className="flex gap-2 items-center">
+                                   <select
+                                       value={formData.groupId && characterGroups.some(g => g.id === formData.groupId) ? formData.groupId : ''}
+                                       onChange={e => handleChange('groupId', e.target.value || undefined)}
+                                       className="flex-1 bg-white rounded-2xl px-4 py-2.5 text-sm text-slate-700 shadow-sm focus:ring-1 focus:ring-primary/20 outline-none appearance-none"
+                                   >
+                                       <option value="">未分组</option>
+                                       {sortCharacterGroups(characterGroups).map(g => (
+                                           <option key={g.id} value={g.id}>{g.name}</option>
+                                       ))}
+                                   </select>
+                                   {detailGroupDraft === null ? (
+                                       <button onClick={() => setDetailGroupDraft('')} className="px-3 py-2.5 rounded-2xl bg-white text-xs text-slate-500 shadow-sm active:scale-95 transition-transform shrink-0">＋新建</button>
+                                   ) : (
+                                       <input
+                                           autoFocus
+                                           value={detailGroupDraft}
+                                           onChange={e => setDetailGroupDraft(e.target.value)}
+                                           onBlur={async () => {
+                                               const name = detailGroupDraft.trim();
+                                               setDetailGroupDraft(null);
+                                               if (!name) return;
+                                               const existing = characterGroups.find(g => g.name === name);
+                                               // 同名分组直接指派进去，不重复创建
+                                               const group = existing || await createCharacterGroup(name);
+                                               if (group) handleChange('groupId', group.id);
+                                           }}
+                                           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                                           placeholder="分组名，回车确认"
+                                           className="w-36 px-3 py-2.5 rounded-2xl bg-white text-xs text-slate-700 shadow-sm outline-none focus:ring-1 focus:ring-primary/20 shrink-0"
+                                       />
+                                   )}
+                               </div>
+                           </div>
+
                            <div>
                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">核心指令 (System Prompt)</label>
                                <textarea value={formData.systemPrompt} onChange={(e) => handleChange('systemPrompt', e.target.value)} className="w-full h-40 bg-white rounded-3xl p-5 text-sm shadow-sm resize-none focus:ring-1 focus:ring-primary/20 transition-all vr-reader-scroll" placeholder="设定..." />
@@ -1416,6 +1643,10 @@ ${isInitialGeneration ? `
                        />
                    )}
 
+                   {detailTab === 'chibi' && formData.id && (
+                       <ChibiShelfPanel charId={formData.id} onOpen={() => setShowChibiStudio(true)} />
+                   )}
+
                    {detailTab === 'plates' && formData.id && (
                        <RoomPlatePanel charId={formData.id} userName={userProfile.name} />
                    )}
@@ -1423,6 +1654,19 @@ ${isInitialGeneration ? `
            </div>
        )}
        
+       {/* QQ捏人工坊：直接写库（sprites / vrState / specialMomentRecords / chibiStudio），
+           关闭时把最新角色数据拉回 formData——否则后续编辑会用旧副本 auto-save 盖掉工坊成果 */}
+       {showChibiStudio && formData && (
+           <ChibiStudio
+               charId={formData.id}
+               onClose={() => {
+                   setShowChibiStudio(false);
+                   const latest = characters.find(c => c.id === formData.id);
+                   if (latest) setFormData(latest);
+               }}
+           />
+       )}
+
        {/* Modals ... */}
        <Modal isOpen={showImportModal} title="记忆导入/清洗" onClose={() => setShowImportModal(false)} footer={<><button onClick={() => setShowImportModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-500 font-bold rounded-2xl">取消</button><button onClick={handleImportMemories} disabled={isProcessingMemory} className="flex-1 py-3 bg-primary text-white font-bold rounded-2xl shadow-lg shadow-primary/30 flex items-center justify-center gap-2">{isProcessingMemory && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}{isProcessingMemory ? '处理中...' : '开始执行'}</button></>}>
            <div className="space-y-3"><div className="text-xs text-slate-400 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">AI 将自动整理乱序文本为记忆档案。</div>{importStatus && <div className="text-xs text-primary font-medium">{importStatus}</div>}<textarea value={importText} onChange={e => setImportText(e.target.value)} placeholder="在此粘贴文本..." className="w-full h-32 bg-slate-100 border-none rounded-2xl px-4 py-3 text-sm text-slate-700 resize-none focus:ring-2 focus:ring-primary/20 transition-all"/></div>
@@ -1552,9 +1796,49 @@ ${isInitialGeneration ? `
             </div>
         </Modal>
 
-        <Modal 
-            isOpen={!!deleteConfirmTarget} 
-            title="断开连接" 
+        {/* 角色分组管理 */}
+        <Modal isOpen={showGroupModal} title="角色分组管理" onClose={() => { setShowGroupModal(false); setNewGroupName(''); }}>
+            <div className="space-y-3">
+                <div className="flex gap-2">
+                    <input
+                        value={newGroupName}
+                        onChange={e => setNewGroupName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleAddGroup(); }}
+                        placeholder="新分组名称"
+                        className="flex-1 px-4 py-2.5 bg-slate-100 rounded-xl text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                    <button onClick={handleAddGroup} className="px-4 py-2.5 bg-primary text-white text-sm font-bold rounded-xl shadow-sm shadow-primary/30 active:scale-95 transition-transform shrink-0">添加</button>
+                </div>
+                {characterGroups.length === 0 ? (
+                    <div className="text-center text-xs text-slate-400 py-6">还没有分组。建一个试试——角色列表和各处选角色的地方都会按组展示。</div>
+                ) : (
+                    <div className="space-y-2 max-h-64 overflow-y-auto no-scrollbar">
+                        {sortCharacterGroups(characterGroups).map(g => (
+                            <div key={g.id} className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                                <input
+                                    defaultValue={g.name}
+                                    onBlur={e => { const v = e.target.value.trim(); if (v && v !== g.name) renameCharacterGroup(g.id, v); else e.target.value = g.name; }}
+                                    onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                                    className="flex-1 min-w-0 bg-transparent text-sm text-slate-700 outline-none border-b border-transparent focus:border-slate-300 py-0.5"
+                                />
+                                <span className="text-xs text-slate-400 tabular-nums shrink-0">{characters.filter(c => c.groupId === g.id).length} 个角色</span>
+                                <button
+                                    onClick={() => { deleteCharacterGroup(g.id); addToast(`分组「${g.name}」已删除，组内角色回到未分组`, 'info'); }}
+                                    className="p-1.5 rounded-full text-slate-300 hover:bg-red-50 hover:text-red-400 transition-all shrink-0"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                <p className="text-[10px] text-slate-400 leading-relaxed bg-slate-50 p-2.5 rounded-xl">删除分组不会删除角色，组内角色会回到「未分组」。给角色指派分组：进入角色的「设定」页。</p>
+            </div>
+        </Modal>
+
+        <Modal
+            isOpen={!!deleteConfirmTarget}
+            title="断开连接"
             onClose={() => setDeleteConfirmTarget(null)} 
             footer={<div className="flex gap-2 w-full"><button onClick={() => setDeleteConfirmTarget(null)} className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-2xl font-bold">保留</button><button onClick={confirmDeleteCharacter} className="flex-1 py-3 bg-red-500 text-white font-bold rounded-2xl shadow-lg shadow-red-200">确认断开</button></div>}
         >

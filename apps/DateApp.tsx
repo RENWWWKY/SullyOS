@@ -14,9 +14,10 @@ import DateSession from '../components/date/DateSession';
 import DateSettings from '../components/date/DateSettings';
 import { armDateResumeAttempt, clearDateResumeAttempt, takeCrashedDateResume } from '../utils/dateSessionRecovery';
 import { BookOpen, Sparkle, CaretLeft, GearSix } from '@phosphor-icons/react';
+import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 
 const DateApp: React.FC = () => {
-    const { closeApp, openApp, characters, activeCharacterId, setActiveCharacterId, apiConfig, addToast, updateCharacter, virtualTime, userProfile, memoryPalaceConfig, dateAutoStartCharId, consumeDateAutoStart } = useOS();
+    const { closeApp, openApp, characters, activeCharacterId, setActiveCharacterId, apiConfig, addToast, updateCharacter, virtualTime, userProfile, memoryPalaceConfig, dateAutoStartCharId, consumeDateAutoStart, characterGroups } = useOS();
 
     // 是否由聊天「见面」按钮进入：为真时，退出见面流程回到聊天而非见面选择页/桌面。
     // 用本地 state（而非 context）承载：DateApp 切走即卸载，标记随之消失，不会泄漏到
@@ -44,6 +45,7 @@ const DateApp: React.FC = () => {
     const SELECT_PAGE_SIZE = 6;
     const pagerRef = useRef<HTMLDivElement>(null);
     const [selectPage, setSelectPage] = useState(0);
+    const [selectGroupId, setSelectGroupId] = useState(GROUP_FILTER_ALL); // 选择页的分组筛选
     const onPagerScroll = () => {
         const el = pagerRef.current;
         if (!el || el.clientWidth === 0) return;
@@ -565,9 +567,10 @@ const DateApp: React.FC = () => {
     // --- Render ---
 
     if (mode === 'select' || !char) {
-        // 6 个角色一页，横向翻页
+        // 6 个角色一页，横向翻页（先按分组筛选，再切页）
+        const selectChars = filterCharactersByGroup(characters, characterGroups, selectGroupId);
         const pages: CharacterProfile[][] = [];
-        for (let i = 0; i < characters.length; i += SELECT_PAGE_SIZE) pages.push(characters.slice(i, i + SELECT_PAGE_SIZE));
+        for (let i = 0; i < selectChars.length; i += SELECT_PAGE_SIZE) pages.push(selectChars.slice(i, i + SELECT_PAGE_SIZE));
         if (pages.length === 0) pages.push([]);
         // 星点装饰（固定坐标，避免每帧抖动）
         const stars = [
@@ -607,13 +610,18 @@ const DateApp: React.FC = () => {
                         <h1 className="text-[27px] font-bold text-white font-serif tracking-[0.12em] drop-shadow-[0_2px_14px_rgba(180,150,255,0.65)]">选择见面对象</h1>
                         <div className="text-[9px] tracking-[0.5em] text-violet-200/60 mt-1.5">CHOOSE CHARACTER</div>
                     </div>
+                    {/* 分组筛选（没建分组时不渲染）。切组后回到第一页 */}
+                    <CharacterGroupFilterBar characters={characters} groups={characterGroups} dark
+                        value={selectGroupId}
+                        onChange={(id) => { setSelectGroupId(id); setSelectPage(0); pagerRef.current?.scrollTo({ left: 0 }); }}
+                        className="px-4 mb-3" />
                 </div>
 
                 {/* 分页卡片区 */}
-                {characters.length === 0 ? (
+                {selectChars.length === 0 ? (
                     <div className="relative z-10 flex-1 flex flex-col items-center justify-center text-violet-200/60 gap-3">
                         <Sparkle size={40} weight="light" />
-                        <span className="text-xs tracking-wider">还没有可见面的角色</span>
+                        <span className="text-xs tracking-wider">{characters.length ? '该分组下没有角色' : '还没有可见面的角色'}</span>
                     </div>
                 ) : (
                     <div ref={pagerRef} onScroll={onPagerScroll}

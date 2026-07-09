@@ -3,9 +3,12 @@
  * IndexedDB 由 test-setup 的 fake-indexeddb 提供，走真实 DB 层。
  */
 import { describe, it, expect, afterAll } from 'vitest';
-import { buildLifeRecordInjection, computePeriodStatus, executeLifeDirectives, resolveLifeRecordCard, lifeToday } from './lifeRecords';
+import {
+    buildLifeRecordInjection, computePeriodStatus, executeLifeDirectives, resolveLifeRecordCard,
+    getPeriodIntervals, isMedPlanDueToday, lifeToday,
+} from './lifeRecords';
 import { DB } from './db';
-import { CharacterProfile, LifeRecord, Message } from '../types';
+import { CharacterProfile, LifeRecord, MedPlan, Message } from '../types';
 
 const noToast = () => {};
 
@@ -59,6 +62,63 @@ describe('computePeriodStatus 生理期状态机', () => {
             { id: 'main', cycleLength: 30 }, '2026-07-02',
         );
         expect(st.nextPredicted).toBe('2026-07-31');
+    });
+
+    it('排卵期预测：排卵日 = 下次经期 − 14 天，排卵期窗口 −5 ~ +1', () => {
+        const st = computePeriodStatus([mkPeriod('start', '2026-07-01')], null, '2026-07-08');
+        expect(st.nextPredicted).toBe('2026-07-29');
+        expect(st.ovulationDate).toBe('2026-07-15');
+        expect(st.ovulationStart).toBe('2026-07-10');
+        expect(st.ovulationEnd).toBe('2026-07-16');
+    });
+});
+
+describe('getPeriodIntervals 日历区间', () => {
+    it('start+end 配对成闭区间；未闭合区间截到今天', () => {
+        const ivs = getPeriodIntervals([
+            mkPeriod('start', '2026-06-01'), mkPeriod('end', '2026-06-05'),
+            mkPeriod('start', '2026-06-29'),
+        ], '2026-07-02');
+        expect(ivs).toHaveLength(2);
+        expect(ivs[0]).toMatchObject({ start: '2026-06-01', end: '2026-06-05' });
+        expect(ivs[1]).toMatchObject({ start: '2026-06-29', end: '2026-07-02', open: true });
+    });
+
+    it('连续两个 start：上一段在新开始前一天收口', () => {
+        const ivs = getPeriodIntervals([
+            mkPeriod('start', '2026-06-01'), mkPeriod('start', '2026-06-04'), mkPeriod('end', '2026-06-08'),
+        ], '2026-07-02');
+        expect(ivs[0]).toMatchObject({ start: '2026-06-01', end: '2026-06-03' });
+        expect(ivs[1]).toMatchObject({ start: '2026-06-04', end: '2026-06-08' });
+    });
+});
+
+describe('isMedPlanDueToday 药盒频率', () => {
+    const mkPlan = (overrides?: Partial<MedPlan>): MedPlan => ({
+        id: 'p1', name: '维D', time: '08:00', enabled: true,
+        createdAt: new Date('2026-07-01T00:00:00Z').getTime(), ...overrides,
+    });
+
+    it('默认（无频率字段）= 长期每天，与旧数据兼容', () => {
+        expect(isMedPlanDueToday(mkPlan(), '2026-07-06')).toBe(true);
+    });
+
+    it('隔天吃：锚点日起偶数天差才到期', () => {
+        const p = mkPlan({ intervalDays: 2, startDate: '2026-07-01' });
+        expect(isMedPlanDueToday(p, '2026-07-01')).toBe(true);
+        expect(isMedPlanDueToday(p, '2026-07-02')).toBe(false);
+        expect(isMedPlanDueToday(p, '2026-07-03')).toBe(true);
+    });
+
+    it('短期疗程：日期段外不生效（含结束当天）', () => {
+        const p = mkPlan({ planKind: 'course', startDate: '2026-07-01', endDate: '2026-07-05' });
+        expect(isMedPlanDueToday(p, '2026-06-30')).toBe(false);
+        expect(isMedPlanDueToday(p, '2026-07-05')).toBe(true);
+        expect(isMedPlanDueToday(p, '2026-07-06')).toBe(false);
+    });
+
+    it('停用的计划永远不到期', () => {
+        expect(isMedPlanDueToday(mkPlan({ enabled: false }), '2026-07-06')).toBe(false);
     });
 });
 

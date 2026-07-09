@@ -43,6 +43,7 @@ import { isInstantConfigReady, loadInstantConfig } from '../utils/instantPushCli
 import { resolveActiveSound, playWhiteboxSound, unlockWhiteboxAudio, parseWhiteboxSound, upsertWhiteboxSound, stripWhiteboxSoundDirective, WhiteboxSound } from '../utils/whiteboxSound';
 import WhiteboxSoundEditor from '../components/chat/WhiteboxSoundEditor';
 import { normalizeTranslationLangLabel } from '../utils/translationLang';
+import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 
 const VOICE_LANG_LABELS: Record<string, string> = { en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', es: 'Español' };
 type InstantToolUiStatus = {
@@ -54,7 +55,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();
+    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
 
     // 记忆宫殿高水位（用于清空聊天时的安全检查）
@@ -2258,6 +2259,7 @@ const Chat: React.FC = () => {
 
     // --- Forward Chat Records ---
     const [showForwardModal, setShowForwardModal] = useState(false);
+    const [forwardGroupId, setForwardGroupId] = useState(GROUP_FILTER_ALL); // 转发弹窗的角色分组筛选
 
     const handleForwardSelected = () => {
         if (selectedMsgIds.size === 0) return;
@@ -3303,26 +3305,33 @@ const Chat: React.FC = () => {
 
             {/* Forward Modal */}
             <Modal isOpen={showForwardModal} title="转发聊天记录" onClose={() => setShowForwardModal(false)}>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                    <p className="text-xs text-slate-400 mb-3">选择要转发给的角色 (已选 {selectedMsgIds.size} 条消息)</p>
-                    {characters.filter(c => c.id !== activeCharacterId).map(c => (
-                        <button
-                            key={c.id}
-                            onClick={() => handleForwardToCharacter(c.id)}
-                            className="w-full flex items-center gap-3 p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 active:scale-[0.98] transition-all border border-slate-100"
-                        >
-                            <img src={c.avatar} className="w-10 h-10 rounded-xl object-cover" />
-                            <div className="flex-1 text-left">
-                                <div className="font-bold text-sm text-slate-700">{c.name}</div>
-                                <div className="text-[10px] text-slate-400 truncate">{c.description}</div>
-                            </div>
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-slate-300"><path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-                        </button>
-                    ))}
-                    {characters.filter(c => c.id !== activeCharacterId).length === 0 && (
-                        <div className="text-center text-xs text-slate-400 py-8">没有其他角色可以转发</div>
-                    )}
-                </div>
+                {(() => {
+                    const forwardCandidates = characters.filter(c => c.id !== activeCharacterId);
+                    const forwardChars = filterCharactersByGroup(forwardCandidates, characterGroups, forwardGroupId);
+                    return (
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                            <p className="text-xs text-slate-400 mb-3">选择要转发给的角色 (已选 {selectedMsgIds.size} 条消息)</p>
+                            <CharacterGroupFilterBar characters={forwardCandidates} groups={characterGroups} value={forwardGroupId} onChange={setForwardGroupId} className="mb-2 -mx-1 px-1" />
+                            {forwardChars.map(c => (
+                                <button
+                                    key={c.id}
+                                    onClick={() => handleForwardToCharacter(c.id)}
+                                    className="w-full flex items-center gap-3 p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 active:scale-[0.98] transition-all border border-slate-100"
+                                >
+                                    <img src={c.avatar} className="w-10 h-10 rounded-xl object-cover" />
+                                    <div className="flex-1 text-left">
+                                        <div className="font-bold text-sm text-slate-700">{c.name}</div>
+                                        <div className="text-[10px] text-slate-400 truncate">{c.description}</div>
+                                    </div>
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-slate-300"><path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                                </button>
+                            ))}
+                            {forwardChars.length === 0 && (
+                                <div className="text-center text-xs text-slate-400 py-8">{forwardCandidates.length === 0 ? '没有其他角色可以转发' : '该分组下没有角色'}</div>
+                            )}
+                        </div>
+                    );
+                })()}
             </Modal>
         </div>
     );

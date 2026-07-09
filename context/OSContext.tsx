@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
-import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile } from '../types';
+import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile } from '../types';
 import { DB } from '../utils/db';
 import { extractImagesInPlace, deepCloneForExport } from '../utils/backupExport';
 import { isBlobRef, getBlobForRef, migrateDataUrlToRef, resolveBlobRefsDeep, BLOBREF_PREFIX } from '../utils/blobRef';
@@ -12,6 +12,7 @@ import { runVRSession } from '../utils/vrWorld/runSession';
 import { VR_DEFAULT_INTERVAL_MIN } from '../utils/vrWorld/constants';
 import { WorldScheduler } from '../utils/worldHome/scheduler';
 import { runWorldEpisode, rerollWorldCharBeat } from '../utils/worldHome/engine';
+import { migrateWorldDaySegs } from '../utils/worldHome/prompts';
 import { ChatParser } from '../utils/chatParser';
 import { safeFetchJson } from '../utils/safeApi';
 import { recordApiCall, setApiCallAmbientContext } from '../utils/apiCallLog';
@@ -31,6 +32,7 @@ import { isEmotionEvalSkipped } from '../utils/devDebug';
 import { toMountedWorldbook } from '../utils/worldbook';
 // 备份用：把存在 localStorage 的本机配置随导出一起带走（键名须与 importFullData 对齐）
 import { exportPostOfficeLocal } from '../utils/vrWorld/postOffice';
+import { exportSignalLocal } from '../utils/vrWorld/signal';
 import { exportWorldHomeLocal } from '../utils/worldHome/localBackup';
 import { exportLuckinLocal } from '../utils/luckinMcpClient';
 import { exportMcdLocal } from '../utils/mcdMcpClient';
@@ -230,6 +232,12 @@ interface OSContextType {
   updateCharacter: (id: string, updates: Partial<CharacterProfile> | ((prev: CharacterProfile) => Partial<CharacterProfile>)) => void;
   deleteCharacter: (id: string) => void;
   setActiveCharacterId: (id: string) => void;
+
+  // 角色分组（神经链接"文件夹"，与群聊 groups 无关）
+  characterGroups: CharacterGroup[];
+  createCharacterGroup: (name: string) => Promise<CharacterGroup | null>;
+  renameCharacterGroup: (id: string, name: string) => Promise<void>;
+  deleteCharacterGroup: (id: string) => Promise<void>;
   
   // Worldbooks
   worldbooks: Worldbook[];
@@ -664,7 +672,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     }
   }, [activeCharacterId]);
   
-  const [groups, setGroups] = useState<GroupProfile[]>([]); 
+  const [groups, setGroups] = useState<GroupProfile[]>([]);
+  const [characterGroups, setCharacterGroups] = useState<CharacterGroup[]>([]);
   const [worldbooks, setWorldbooks] = useState<Worldbook[]>([]); 
   const [novels, setNovels] = useState<NovelBook[]>([]); // New
   const [songs, setSongs] = useState<SongSheet[]>([]);
@@ -1058,14 +1067,15 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             }
         };
 
-        const [dbChars, dbThemes, dbUser, dbGroups, dbWorldbooks, dbNovels, dbSongs] = await Promise.all([
+        const [dbChars, dbThemes, dbUser, dbGroups, dbWorldbooks, dbNovels, dbSongs, dbCharGroups] = await Promise.all([
             settle(DB.getAllCharacters(), 'characters', [] as CharacterProfile[]),
             settle(DB.getThemes(), 'themes', [] as ChatTheme[]),
             settle(DB.getUserProfile(), 'userProfile', null as UserProfile | null),
             settle(DB.getGroups(), 'groups', [] as GroupProfile[]),
             settle(DB.getAllWorldbooks(), 'worldbooks', [] as Worldbook[]),
             settle(DB.getAllNovels(), 'novels', [] as NovelBook[]),
-            settle(DB.getAllSongs(), 'songs', [] as SongSheet[])
+            settle(DB.getAllSongs(), 'songs', [] as SongSheet[]),
+            settle(DB.getCharacterGroups(), 'characterGroups', [] as CharacterGroup[])
         ]);
 
         let finalChars = dbChars;
@@ -1145,6 +1155,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         }
 
         setGroups(dbGroups);
+        setCharacterGroups(dbCharGroups);
         setWorldbooks(dbWorldbooks);
         setNovels(dbNovels);
         setSongs(dbSongs);
@@ -1983,11 +1994,17 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       window.addEventListener('world-reroll-request', onRerollRequest as EventListener);
       // 调度表存 localStorage 不随备份迁移，按 IndexedDB 里的世界配置对账
       void DB.getWorlds()
-          .then(worlds => WorldScheduler.reconcile(
-              worlds
-                  .filter(w => (w.offlineTickSlots?.length || 0) > 0)
-                  .map(w => ({ worldId: w.id, slots: w.offlineTickSlots! }))
-          ))
+          .then(async worlds => {
+              // 旧存档（一天三段制）→ 四段制（含凌晨）一次性迁移并写回
+              for (const w of worlds) {
+                  if (migrateWorldDaySegs(w)) await DB.saveWorld(w).catch(() => {});
+              }
+              WorldScheduler.reconcile(
+                  worlds
+                      .filter(w => (w.offlineTickSlots?.length || 0) > 0)
+                      .map(w => ({ worldId: w.id, slots: w.offlineTickSlots! }))
+              );
+          })
           .catch(() => {});
 
       return () => {
@@ -2244,7 +2261,41 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   };
   const updateCharacter = async (id: string, updates: Partial<CharacterProfile> | ((prev: CharacterProfile) => Partial<CharacterProfile>)) => { setCharacters(prev => { const updated = prev.map(c => c.id === id ? normalizeCharacterImpression({ ...c, ...(typeof updates === 'function' ? updates(c) : updates) }) : c); const target = updated.find(c => c.id === id); if (target) DB.saveCharacter(target); return updated; }); };
   const deleteCharacter = async (id: string) => { setCharacters(prev => { const remaining = prev.filter(c => c.id !== id); if (remaining.length > 0 && activeCharacterId === id) { setActiveCharacterId(remaining[0].id); } return remaining; }); await DB.deleteCharacter(id); };
-  
+
+  // 角色分组方法（神经链接"文件夹"）
+  const createCharacterGroup = async (name: string): Promise<CharacterGroup | null> => {
+      const trimmed = name.trim();
+      if (!trimmed) return null;
+      const newGroup: CharacterGroup = { id: `cgroup-${Date.now()}`, name: trimmed, createdAt: Date.now() };
+      await DB.saveCharacterGroup(newGroup);
+      setCharacterGroups(prev => [...prev, newGroup]);
+      return newGroup;
+  };
+
+  const renameCharacterGroup = async (id: string, name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      let target: CharacterGroup | undefined;
+      setCharacterGroups(prev => {
+          const updated = prev.map(g => g.id === id ? { ...g, name: trimmed } : g);
+          target = updated.find(g => g.id === id);
+          return updated;
+      });
+      if (target) await DB.saveCharacterGroup(target);
+  };
+
+  // 删分组 = 组内角色回落「未分组」+ 删分组定义本身，角色不受影响
+  const deleteCharacterGroup = async (id: string) => {
+      setCharacters(prev => prev.map(c => {
+          if (c.groupId !== id) return c;
+          const next = { ...c, groupId: undefined };
+          DB.saveCharacter(next);
+          return next;
+      }));
+      await DB.deleteCharacterGroup(id);
+      setCharacterGroups(prev => prev.filter(g => g.id !== id));
+  };
+
   // Group Methods
   const createGroup = async (name: string, members: string[]) => {
       const newGroup: GroupProfile = {
@@ -2676,7 +2727,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // 1. Define Stores to Process based on Mode
           let storesToProcess: string[] = [];
           const allStores = [
-              'characters', 'messages', 'themes', 'emojis', 'emoji_categories', 'assets', 'gallery',
+              // character_groups（角色分组定义）必须与 characters 同进退：
+              // 角色身上的 groupId 指向这张表，漏导会让导入端全员回落「未分组」
+              'characters', 'character_groups', 'messages', 'themes', 'emojis', 'emoji_categories', 'assets', 'gallery',
               'user_profile', 'diaries', 'tasks', 'anniversaries', 'room_todos',
               'room_notes', 'groups', 'journal_stickers', 'social_posts', 'courses', 'games', 'worldbooks', 'novels', 'songs',
               'bank_transactions', 'bank_data',
@@ -2855,6 +2908,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               //  · 瑞幸 / 麦当劳 MCP 的点单 token + 启用状态（用户说的「那个码」）
               //  · 邮局身份、家园全局 API + 文风收藏
               vrPostOffice: (mode === 'text_only' || mode === 'full') ? exportPostOfficeLocal() : undefined,
+              vrSignal: (mode === 'text_only' || mode === 'full') ? exportSignalLocal() : undefined, // 信号坠落处：句子归属「你·角色」+ 反复用清单
               worldHomeLocal: (mode === 'text_only' || mode === 'full') ? exportWorldHomeLocal() : undefined,
               luckinLocal: (mode === 'text_only' || mode === 'full') ? exportLuckinLocal() : undefined,
               mcdLocal: (mode === 'text_only' || mode === 'full') ? exportMcdLocal() : undefined,
@@ -2923,7 +2977,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const noImageStores = new Set([
               'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
               'room_plates', 'digest_reports',
-              'bank_transactions', 'scheduled_messages', 'memory_batches', 'hotnews_snapshots'
+              'bank_transactions', 'scheduled_messages', 'memory_batches', 'hotnews_snapshots',
+              'character_groups' 
           ]);
 
           // Chunked processObject for large arrays — yields to main thread every 200 items
@@ -2964,10 +3019,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   continue;
               }
 
-              // 角色的小屋图片（roomConfig.wallImage/floorImage/items[].image、sprites.chibi）
-              // 可能存的是 blobref 令牌。媒体/全量模式下先解析回 data:image，令后面的
-              // data:→zip 抽取（含 media_only 的 roomItems/backgrounds 提取）能认得。
-              if (storeName === 'characters' && mode !== 'text_only' && Array.isArray(rawData)) {
+              // 这些 store 的图片可能存的是 blobref 令牌，媒体/全量模式下先解析回 data:image，
+              // 令后面的 data:→zip 抽取能认得：
+              //  · characters：小屋 roomConfig.wallImage/floorImage/items[].image、sprites.chibi
+              //    （media_only 的 roomItems/backgrounds 提取也依赖已还原成 data:）
+              //  · cc_custom_parts：捏人器自定义部件的 src / shadowSrc
+              if ((storeName === 'characters' || storeName === 'cc_custom_parts') && mode !== 'text_only' && Array.isArray(rawData)) {
                   for (const c of rawData) await resolveBlobRefsDeep(c);
               }
 
@@ -3037,6 +3094,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // Assign to Backup Data
               switch(storeName) {
                   case 'characters': if(mode !== 'media_only') backupData.characters = processedData; break;
+                  // 角色分组定义 —— 键名须与 importFullData 读取的字段（data.characterGroups）对齐
+                  case 'character_groups': backupData.characterGroups = processedData; break;
                   case 'messages': backupData.messages = processedData; break;
                   case 'themes': backupData.customThemes = processedData; break;
                   case 'emojis': backupData.savedEmojis = processedData; break;
@@ -3682,6 +3741,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     updateCharacter,
     deleteCharacter,
     setActiveCharacterId,
+    characterGroups,
+    createCharacterGroup,
+    renameCharacterGroup,
+    deleteCharacterGroup,
     worldbooks,
     addWorldbook,
     updateWorldbook,

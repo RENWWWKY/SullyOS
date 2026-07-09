@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useOS } from '../context/OSContext';
 import { ArrowLeft, UploadSimple, Trash, Wrench, Warning, FileArrowUp, MoonStars } from '@phosphor-icons/react';
 import { DB } from '../utils/db';
+import { creatorPartToBlobRefs, loadCreatorPartsForRender } from '../utils/creatorPartsBlob';
+import { buildBuiltinPartsPackZip, type BuiltinPackItem } from '../utils/builtinPartsPack';
 import type { CustomCreatorPart } from '../types';
 import type { ParsedPsdPart } from '../utils/psdCreatorImport';
 
@@ -34,8 +36,10 @@ const CharCreatorDevApp: React.FC = () => {
     const [psdParsing, setPsdParsing] = useState(false);
     const [psdParts, setPsdParts] = useState<ParsedPsdPart[]>([]);
     const [psdWarnings, setPsdWarnings] = useState<string[]>([]);
+    const [showRules, setShowRules] = useState(true); // PSD 命名规则说明，默认展开给创作者看
 
-    const load = useCallback(async () => setParts(await DB.getCustomCreatorParts()), []);
+    // 加载：解析成 base64 供 <img> 显示，并把存量 base64 惰性迁移成 Blob 令牌落库。
+    const load = useCallback(async () => setParts(await loadCreatorPartsForRender()), []);
     useEffect(() => { void load(); }, [load]);
 
     const onFile = (f: File | undefined) => {
@@ -56,7 +60,8 @@ const CharCreatorDevApp: React.FC = () => {
             tintable,
             createdAt: Date.now(),
         };
-        await DB.saveCustomCreatorPart(part);
+        // 落库前把 base64 src 转成 Blob 令牌（省配额）
+        await DB.saveCustomCreatorPart(await creatorPartToBlobRefs(part));
         setName(''); setSrc(''); setTintable(false);
         if (fileRef.current) fileRef.current.value = '';
         await load();
@@ -68,6 +73,34 @@ const CharCreatorDevApp: React.FC = () => {
         await load();
         addToast?.('已删除', 'success');
     };
+
+    // 导出「内置素材包」ZIP（parts/*.png 二进制 + parts.json 清单）——供管理员把部件作为
+    // 内置素材随包发给所有用户，而不是每台设备各存 base64 / 把 base64 塞进 HTML 撑大体积。
+    const [exporting, setExporting] = useState(false);
+    const downloadPack = async (items: BuiltinPackItem[], hint: string) => {
+        if (!items.length) { addToast?.('没有可导出的部件', 'error'); return; }
+        setExporting(true);
+        try {
+            const { blob, plan } = await buildBuiltinPartsPackZip(items);
+            if (!plan.manifest.length) { addToast?.('没有可导出的部件（都缺类目）', 'error'); return; }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `creator_builtin_parts_${hint}_${Date.now()}.zip`;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 2000);
+            addToast?.(plan.skipped
+                ? `已导出 ${plan.manifest.length} 个内置部件（跳过 ${plan.skipped} 个缺类目）`
+                : `已导出 ${plan.manifest.length} 个内置部件`, 'success');
+        } catch (e) {
+            console.error('[CharCreatorDev] 导出内置素材包失败', e);
+            addToast?.('导出失败：' + String((e as Error)?.message || e), 'error');
+        } finally {
+            setExporting(false);
+        }
+    };
+    const toPackItem = (p: { categoryKey: string | null; name: string; src: string; shadowSrc?: string; tintable?: boolean }): BuiltinPackItem =>
+        ({ categoryKey: p.categoryKey, name: p.name, src: p.src, shadowSrc: p.shadowSrc, tintable: p.tintable });
 
     const onPsdFile = async (f: File | undefined) => {
         if (!f) return;
@@ -105,7 +138,8 @@ const CharCreatorDevApp: React.FC = () => {
                 shadowSrc: p.shadowSrc,
                 createdAt: Date.now(),
             };
-            await DB.saveCustomCreatorPart(part);
+            // PSD 批量导入：src / shadowSrc 的 base64 落库前转成 Blob 令牌
+            await DB.saveCustomCreatorPart(await creatorPartToBlobRefs(part));
         }
         setPsdParts([]); setPsdWarnings([]);
         await load();
@@ -143,11 +177,33 @@ const CharCreatorDevApp: React.FC = () => {
                         <FileArrowUp size={14} weight="bold" className="text-amber-300" />
                         PSD 整批导入
                     </div>
-                    <div className="text-[10px] text-white/45 leading-relaxed">
-                        顶层<b>图层组 = 一个部件</b>，组名写「类目 名称」（如 <code>前发 云朵</code>）。
-                        组里的<b>正片叠底层</b>会自动识别为该部件投出去的阴影（转成黑色+alpha，换色不受影响）；
-                        名字加 <code>#色</code> / <code>#原色</code> 可强制换色开关，头发类目默认可换色。
-                    </div>
+                    <button onClick={() => setShowRules(v => !v)}
+                        className="text-[10.5px] font-bold text-amber-200/90 flex items-center gap-1 active:opacity-70">
+                        {showRules ? '▾' : '▸'} PSD 命名规则（给创作者看）
+                    </button>
+                    {showRules && (
+                        <div className="text-[10px] text-white/55 leading-relaxed space-y-2 rounded-lg bg-black/25 p-2.5 border border-white/10">
+                            <div>
+                                <b className="text-white/85">① 结构</b>：顶层<b>图层组 = 一个类目</b>，<b>组内每个图层 = 一个部件</b>。<br />
+                                例：<code>眼睛</code> 组里放 <code>杏眼</code> / <code>圆眼</code> / <code>狐狸眼</code> 各一层 → 拆成三个眼睛部件。
+                            </div>
+                            <div>
+                                <b className="text-white/85">② 组名 = 类目</b>（下面任一名字都认，中文英文都行）：
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                    {CC_CATEGORIES.map(c => (
+                                        <span key={c.key} className="px-1.5 py-0.5 rounded bg-white/8 text-white/75">
+                                            {c.label}<span className="text-white/35"> / {c.key}</span>
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                            <div><b className="text-white/85">③ 图层名 = 部件显示名</b>，随便起（杏眼、云朵刘海…）。</div>
+                            <div><b className="text-white/85">④ 换色</b>：名字加 <code>#色</code> 强制可换色、<code>#原色</code> 强制不可换色；不写时<b>头发四类 + 眼睛默认可换色</b>，其余默认不可。</div>
+                            <div><b className="text-white/85">⑤ 显示 / 隐藏</b>：要导入的图层<b>保持显示</b>（小眼睛打开）；<b>隐藏的图层会被跳过</b>——正好用来藏草稿/参考层。图层不透明度记得拉满 100%。</div>
+                            <div><b className="text-white/85">⑥ 画布</b>：<b>472×472</b> 正方形（过大会自动缩，只要锚点/构图对齐即可）。</div>
+                            <div className="text-white/40">认不出类目也没关系，导进来后每个部件可在下面手动选类目。</div>
+                        </div>
+                    )}
                     <input ref={psdRef} type="file" accept=".psd" className="hidden" onChange={e => void onPsdFile(e.target.files?.[0])} />
                     <button onClick={() => psdRef.current?.click()} disabled={psdParsing}
                         className="w-full rounded-lg border border-dashed border-white/30 py-3 text-[11px] text-white/60 active:bg-white/5 disabled:opacity-50">
@@ -190,6 +246,11 @@ const CharCreatorDevApp: React.FC = () => {
                             <button onClick={() => void savePsdParts()}
                                 className="w-full rounded-xl py-2.5 text-[13px] font-bold text-black" style={{ background: 'linear-gradient(135deg,#fbbf24,#f59e0b)' }}>
                                 全部加入捏人器（{psdParts.length}）
+                            </button>
+                            {/* 管理员：把这批 PSD 部件导出成「内置素材包」（PNG 文件 + 清单），可提交进仓库当全员内置 */}
+                            <button onClick={() => void downloadPack(psdParts.map(toPackItem), 'psd')} disabled={exporting}
+                                className="w-full rounded-xl py-2.5 text-[12.5px] font-bold text-white/90 border border-white/20 active:bg-white/5 disabled:opacity-50 flex items-center justify-center gap-1.5">
+                                <FileArrowUp size={15} weight="bold" />{exporting ? '打包中…' : '导出为内置素材包（PNG+清单）'}
                             </button>
                         </div>
                     )}
@@ -234,6 +295,12 @@ const CharCreatorDevApp: React.FC = () => {
                 </div>
 
                 {/* 已有列表 */}
+                {parts.length > 0 && (
+                    <button onClick={() => void downloadPack(parts.map(toPackItem), 'saved')} disabled={exporting}
+                        className="w-full mb-2 rounded-xl py-2 text-[12px] font-bold text-white/90 border border-white/20 active:bg-white/5 disabled:opacity-50 flex items-center justify-center gap-1.5">
+                        <FileArrowUp size={14} weight="bold" />{exporting ? '打包中…' : `把已有 ${parts.length} 个部件导出为内置素材包`}
+                    </button>
+                )}
                 {parts.length === 0 ? (
                     <p className="text-[11px] text-white/40 py-4 text-center">还没有自定义部件。</p>
                 ) : (

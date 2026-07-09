@@ -47,6 +47,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** b - a 的整天数（a、b 均为 YYYY-MM-DD） */
 const diffDays = (a: string, b: string): number => Math.round((parseDate(b) - parseDate(a)) / DAY_MS);
 const addDays = (s: string, n: number): string => new Date(parseDate(s) + n * DAY_MS).toISOString().split('T')[0];
+/** 面板日历等 UI 侧复用的日期工具 */
+export const lifeDiffDays = diffDays;
+export const lifeAddDays = addDays;
 const fmtCN = (s: string): string => {
     const [, m, d] = s.split('-');
     return `${parseInt(m, 10)}月${parseInt(d, 10)}日`;
@@ -71,6 +74,14 @@ export interface PeriodStatus {
     nextPredicted?: string;
     /** 距预测日还有几天（可为负 = 已推迟） */
     daysUntilNext?: number;
+    /**
+     * 排卵期预测（标准日历法：排卵日 ≈ 下次经期开始日 − 14 天；
+     * 排卵期窗口 = 排卵日前 5 天 ~ 排卵日后 1 天）。
+     * 仅作为身体周期信息呈现（状态感知用），措辞不做任何生育导向；估算仅供参考。
+     */
+    ovulationDate?: string;
+    ovulationStart?: string;
+    ovulationEnd?: string;
 }
 
 export const computePeriodStatus = (
@@ -90,6 +101,7 @@ export const computePeriodStatus = (
     const sinceStart = diffDays(lastStart, today);
     const inPeriod = !endAfter && sinceStart >= 0 && sinceStart < PERIOD_AUTO_CLOSE_DAYS;
     const nextPredicted = addDays(lastStart, cycle);
+    const ovulationDate = addDays(nextPredicted, -14);
     return {
         inPeriod,
         dayN: inPeriod ? sinceStart + 1 : undefined,
@@ -97,7 +109,64 @@ export const computePeriodStatus = (
         lastEnd: endAfter?.date,
         nextPredicted,
         daysUntilNext: diffDays(today, nextPredicted),
+        ovulationDate,
+        ovulationStart: addDays(ovulationDate, -5),
+        ovulationEnd: addDays(ovulationDate, 1),
     };
+};
+
+/** 经期区间（供日历渲染）：start/end 事件配对；未闭合的区间以"今天或自动收口日"为界 */
+export interface PeriodInterval { start: string; end: string; open?: boolean }
+
+export const getPeriodIntervals = (records: LifeRecord[], today: string = lifeToday()): PeriodInterval[] => {
+    const evts = effective(records)
+        .filter(r => r.module === 'period' && r.date <= today)
+        .sort((a, b) => a.date === b.date ? a.timestamp - b.timestamp : (a.date < b.date ? -1 : 1));
+    const intervals: PeriodInterval[] = [];
+    const minDate = (a: string, b: string) => (a < b ? a : b);
+    const maxDate = (a: string, b: string) => (a > b ? a : b);
+    let open: string | null = null;
+    for (const e of evts) {
+        if (e.kind === 'start') {
+            if (open) {
+                // 上一段没记结束就又开始了：上一段收口在「自动收口日」和「新开始前一天」的较早者
+                const cap = minDate(addDays(open, PERIOD_AUTO_CLOSE_DAYS - 1), addDays(e.date, -1));
+                intervals.push({ start: open, end: maxDate(open, cap) });
+            }
+            open = e.date;
+        } else if (e.kind === 'end' && open) {
+            intervals.push({ start: open, end: maxDate(open, e.date) });
+            open = null;
+        }
+    }
+    if (open) {
+        const cap = addDays(open, PERIOD_AUTO_CLOSE_DAYS - 1);
+        intervals.push({ start: open, end: today < cap ? today : cap, open: true });
+    }
+    return intervals;
+};
+
+/**
+ * 该计划今天是否该吃：enabled + （疗程则在 startDate~endDate 内）+ 频率命中
+ * （锚点日 = startDate，无则创建当天；按天数差对 intervalDays 取模）。
+ */
+export const isMedPlanDueToday = (plan: MedPlan, today: string = lifeToday()): boolean => {
+    if (!plan.enabled) return false;
+    if (plan.planKind === 'course') {
+        if (plan.startDate && today < plan.startDate) return false;
+        if (plan.endDate && today > plan.endDate) return false;
+    }
+    const interval = Math.max(1, plan.intervalDays || 1);
+    if (interval === 1) return true;
+    const anchor = plan.startDate || new Date(plan.createdAt).toISOString().split('T')[0];
+    const diff = diffDays(anchor, today);
+    return diff >= 0 && diff % interval === 0;
+};
+
+/** 频率的展示文案 */
+export const medFreqLabel = (plan: MedPlan): string => {
+    const n = Math.max(1, plan.intervalDays || 1);
+    return n === 1 ? '每天' : n === 2 ? '隔天' : `每${n}天`;
 };
 
 // ─── 摘要文案（卡片 & 注入共用） ───
@@ -125,26 +194,33 @@ const buildPeriodSummary = (records: LifeRecord[], settings: LifeRecordSettings 
     let s = `- 生理期：当前不在经期（上次 ${fmtCN(st.lastStart)}${st.lastEnd ? ` ~ ${fmtCN(st.lastEnd)}` : ''}）`;
     if (st.nextPredicted && st.daysUntilNext !== undefined) {
         s += st.daysUntilNext >= 0
-            ? `；按周期预测下次约在 ${fmtCN(st.nextPredicted)}（还有约 ${st.daysUntilNext} 天）`
+            ? `；预测下次约在 ${fmtCN(st.nextPredicted)}（还有约 ${st.daysUntilNext} 天）`
             : `；按周期预测已推迟约 ${-st.daysUntilNext} 天`;
-        s += '，预测仅供参考。';
+        // 排卵期只在预测窗口还有意义时给（日历法估算，注明仅供参考）
+        if (st.ovulationDate && st.ovulationEnd && st.ovulationEnd >= today) {
+            s += `；估算排卵期约 ${fmtCN(st.ovulationStart!)}~${fmtCN(st.ovulationEnd)}（这只是 TA 身体周期的背景信息，通常伴随激素波动，可能影响状态与情绪）`;
+        }
+        s += '。以上为日历法估算，仅供参考。';
     } else s += '。';
     return s;
 };
 
 const buildMedSummary = (plans: MedPlan[], records: LifeRecord[], today: string): string => {
-    const activePlans = plans.filter(p => p.enabled).sort((a, b) => a.time.localeCompare(b.time));
+    const duePlans = plans.filter(p => isMedPlanDueToday(p, today)).sort((a, b) => a.time.localeCompare(b.time));
     const todayMeds = effective(records).filter(r => r.module === 'med' && r.date === today);
-    if (activePlans.length === 0 && todayMeds.length === 0) return '- 用药：今日暂无用药计划与记录。';
+    if (plans.filter(p => p.enabled).length === 0 && todayMeds.length === 0) return '- 用药：暂无长期用药计划与记录。';
     const lines: string[] = [];
-    if (activePlans.length > 0) {
-        const items = activePlans.map(p => {
+    if (duePlans.length > 0) {
+        const items = duePlans.map(p => {
             const taken = todayMeds.some(r => (r.payload.planId && r.payload.planId === p.id) || r.payload.name === p.name);
-            return `${p.time} ${p.name}${p.dosage ? `(${p.dosage})` : ''} ${taken ? '✓已服' : '✗未服'}`;
+            const course = p.planKind === 'course' && p.endDate ? `，疗程至${fmtCN(p.endDate)}` : '';
+            return `${p.time} ${p.name}${p.dosage ? `(${p.dosage})` : ''}（${medFreqLabel(p)}${course}）${taken ? '✓已服' : '✗未服'}`;
         });
-        lines.push(`- 今日用药计划：${items.join('；')}。`);
+        lines.push(`- 今日待服：${items.join('；')}。到点没服的，你可以视语境顺口提醒一句，别反复催。`);
+    } else {
+        lines.push('- 今日待服：无（按频率今天轮空或计划都停用）。');
     }
-    const offPlan = todayMeds.filter(r => !r.payload.planId && !activePlans.some(p => p.name === r.payload.name));
+    const offPlan = todayMeds.filter(r => !r.payload.planId && !plans.some(p => p.name === r.payload.name));
     if (offPlan.length > 0) {
         lines.push(`- 计划外用药：${offPlan.map(r => r.payload.name).join('、')}。`);
     }
@@ -160,14 +236,33 @@ const buildExpenseSummary = (txs: BankTransaction[], today: string): string => {
     return `- 今日支出：共 ${todayTx.length} 笔、合计 ${total}（${items}${more}）。`;
 };
 
-const buildExerciseSummary = (records: LifeRecord[], today: string): string => {
+/** 本周（周一起算）的起始日 */
+export const weekStartOf = (today: string): string => {
+    const d = new Date(`${today}T00:00:00Z`);
+    const dow = d.getUTCDay(); // 0=周日
+    return addDays(today, -((dow + 6) % 7));
+};
+
+const buildExerciseSummary = (records: LifeRecord[], settings: LifeRecordSettings | null, today: string): string => {
     const ex = effective(records).filter(r => r.module === 'exercise');
     const todayEx = ex.filter(r => r.date === today);
-    const weekDates = new Set(ex.filter(r => diffDays(r.date, today) >= 0 && diffDays(r.date, today) < 7).map(r => r.date));
+    const ws = weekStartOf(today);
+    const weekSessions = ex.filter(r => r.date >= ws && r.date <= today).length;
     const todayPart = todayEx.length > 0
-        ? `今日已锻炼：${todayEx.map(r => `${r.payload.activity}${r.payload.duration ? ` ${r.payload.duration}` : ''}`).join('、')}`
-        : '今日还没锻炼';
-    return `- 锻炼：${todayPart}；最近 7 天锻炼了 ${weekDates.size} 天。`;
+        ? `今日已练：${todayEx.map(r => `${r.payload.activity}${r.payload.duration ? ` ${r.payload.duration}` : ''}`).join('、')}`
+        : '今日还没练';
+    let s = `- 锻炼：${todayPart}；本周已练 ${weekSessions} 次`;
+    const goal = settings?.exerciseWeeklyGoal;
+    const plan = (settings?.exercisePlanNote || '').trim();
+    if (goal || plan) {
+        if (goal) s += `（周目标 ${goal} 次${weekSessions >= goal ? '，已达标' : `，还差 ${goal - weekSessions} 次`}）`;
+        s += '。';
+        if (plan) s += `TA 的每周锻炼规划：「${plan}」。`;
+        s += `这份计划 TA 希望你帮忙盯着执行：进度落后时按你的方式自然地督促、约练或鼓励（有温度地推一把，不是教练查岗）；达标了就替 TA 高兴。`;
+    } else {
+        s += '。';
+    }
+    return s;
 };
 
 /** 医疗 / 生理期话题的分寸引导（生理期或药盒任一开启时注入） */
@@ -207,7 +302,7 @@ export const buildLifeRecordInjection = async (char: CharacterProfile, userName:
     if (moduleActive('period')) dataLines.push(buildPeriodSummary(records, settings, today));
     if (moduleActive('med')) dataLines.push(buildMedSummary(plans, records, today));
     if (moduleActive('expense')) dataLines.push(buildExpenseSummary(txs, today));
-    if (moduleActive('exercise')) dataLines.push(buildExerciseSummary(records, today));
+    if (moduleActive('exercise')) dataLines.push(buildExerciseSummary(records, settings, today));
     s += `${dataLines.join('\n')}\n\n`;
 
     if (moduleActive('period') || moduleActive('med')) {

@@ -72,6 +72,7 @@ import type { CharacterProfile, UserProfile, VRWorldNovel, VRNovelAnnotation, VR
 
 // ============ chibi 形象解析（vrState.chibi → 立绘 → 头像） ============
 import { getChibi } from '../utils/vrWorld/chibi';
+import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 
 type Tab = 'world' | 'library' | 'settings' | 'api';
 
@@ -2029,15 +2030,15 @@ const SignalPanel: React.FC<{ addToast?: (m: string, t?: any) => void; character
                         <p className="mt-1 text-[9px] leading-relaxed" style={{ color: 'rgba(224,208,176,.45)' }}>这句话不会写进诗——诗是 ta 们的作品。但 ta 会带着它落笔。</p>
                     </div>
                     <div className="flex-1 overflow-y-auto vr-reader-scroll px-3 py-3 space-y-1.5" onClick={e => e.stopPropagation()}>
-                        {characters.length === 0 ? (
-                            <p className="text-[11px] text-white/40 text-center py-8">还没有角色。</p>
-                        ) : characters.map(c => (
+                        {(() => { const joined = characters.filter(c => c.vrState?.enabled); return joined.length === 0 ? (
+                            <p className="text-[11px] text-white/40 text-center py-8 leading-relaxed">还没有角色接入彼方。<br />先去「接入」页给 ta 开启自主登入。</p>
+                        ) : joined.map(c => (
                             <button key={c.id} onClick={() => participate(c)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl active:bg-white/5" style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.06)' }}>
                                 {c.avatar ? <img src={c.avatar} className="h-8 w-8 rounded-full object-cover shrink-0" alt="" /> : <div className="h-8 w-8 rounded-full bg-indigo-400/40 shrink-0 flex items-center justify-center text-[12px] text-white/90">{c.name.slice(0, 1)}</div>}
                                 <span className="text-[12.5px] text-white/90 truncate">{c.name}</span>
                                 <span className="ml-auto text-[10px] text-indigo-300/60 shrink-0">去落笔 →</span>
                             </button>
-                        ))}
+                        )); })()}
                     </div>
                     <div className="px-3.5 py-2 border-t border-white/10"><p className="text-[9px] text-indigo-300/45 leading-relaxed">选中的角色会占住这一笔、调用一次 LLM——接上当前这首诗，或没有正在写的诗时起个新篇。你不落笔，但你是这片轨道正中央、那个不开口的核心。几秒后自动刷新。</p></div>
                 </div>
@@ -2820,6 +2821,7 @@ const ChibiEditor: React.FC<{
                 </div>
                 <div className="flex-1 min-h-0">
                     <CreatorIframe mode="char" charName={char.name} isSully={isSully} presets={presets}
+                        savedState={existing?.state}
                         draftKey={`vr_${char.id}`} title={`捏一个小人 · ${char.name}`} subtitle="彼方 · CHIBI"
                         onConfirm={onConfirm} />
                 </div>
@@ -2890,6 +2892,7 @@ const UserChibiEditor: React.FC<{
         return (
             <div className="fixed inset-0 z-[60] flex flex-col bg-black" style={{ paddingTop: VR_TOP }}>
                 <CreatorIframe mode="user" charName={userName} presets={presets}
+                    savedState={existing?.state}
                     draftKey="vr_user" title={`捏一个你自己 · ${userName}`} subtitle="彼方 · 你的 CHIBI"
                     onConfirm={onConfirm} />
             </div>
@@ -3021,6 +3024,9 @@ const SettingsView: React.FC<{
     onEditChibi: (char: CharacterProfile) => void;
 }> = ({ characters, updateCharacter, addToast, novelCount, onReload, onRequestEnable, onEditChibi }) => {
     const [pickFor, setPickFor] = useState<CharacterProfile | null>(null);
+    // 接入列表的分组筛选（characters 由 props 传入，这里单独取 characterGroups 即可）
+    const { characterGroups } = useOS();
+    const [settingsGroupId, setSettingsGroupId] = useState<string>(GROUP_FILTER_ALL);
     const go = (room?: VRRoomId) => {
         if (!pickFor) return;
         VRScheduler.triggerNow(pickFor.id, room);
@@ -3045,7 +3051,12 @@ const SettingsView: React.FC<{
                 {novelCount === 0 && <span className="text-amber-300/80"> 书库还空着，先去「书库」上传一本。</span>}
             </p>
             {characters.length === 0 && <p className="text-[11px] text-indigo-300/50 py-4 text-center">还没有角色。</p>}
-            {characters.map(char => {
+            {/* 分组筛选（没建分组时不渲染）：深色底 */}
+            <CharacterGroupFilterBar characters={characters} groups={characterGroups} dark
+                value={settingsGroupId} onChange={setSettingsGroupId} />
+            {characters.length > 0 && filterCharactersByGroup(characters, characterGroups, settingsGroupId).length === 0 &&
+                <p className="text-[11px] text-indigo-300/50 py-4 text-center">该分组下没有角色</p>}
+            {filterCharactersByGroup(characters, characterGroups, settingsGroupId).map(char => {
                 const st = char.vrState;
                 const enabled = !!st?.enabled;
                 const interval = st?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN;
@@ -3096,7 +3107,7 @@ const SettingsView: React.FC<{
                     { label: '留言簿 · 发帖版聊', onClick: () => go('guestbook') },
                     { label: '娱乐室 · 放开玩', onClick: () => go('gym') },
                     { label: '邮局 · 写漂流信', onClick: () => go('postoffice') },
-                    { label: '信号坠落处 · 接龙写诗', onClick: () => go('signal') },
+                    // 信号坠落处不放这里：参与统一走活动 banner → 面板「✍ 参与」，那条路才有「耳语」
                 ]} onClose={() => setPickFor(null)} />
         </div>
     );

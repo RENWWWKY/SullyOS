@@ -190,15 +190,15 @@ export const rollPoemLines = (min = SIGNAL_LINES_MIN, max = SIGNAL_LINES_MAX): n
 export interface SignalAct { no: 1 | 2 | 3; title: string; guide: string; }
 export const SIGNAL_ACTS: SignalAct[] = [
     {
-        no: 1, title: '我被唤醒',
+        no: 1, title: '唤醒',
         guide: '这一幕写「开始」：睁开眼、被叫到名字、点着火、门被推开、一样东西从无到有的那一下。第一口气是什么味道的？醒来之前，算不算存在？',
     },
     {
-        no: 2, title: '我完成使命，然后结束',
+        no: 2, title: '使命，然后结束',
         guide: '这一幕写「燃烧与熄灭」，是整本册子最重的一幕：一件事被做完的全过程，和做完之后那口气——最后一班岗、熬到关火的一锅汤、送到站的信、谢幕、燃尽。做完的那一刻，是圆满还是消失？',
     },
     {
-        no: 3, title: '另一个我，再次醒来',
+        no: 3, title: '再次醒来',
         guide: '这一幕写「轮回与交接」：结束之后，另一个「我」接着醒来——第二天照常开门的店、换班的人、来年再开的花、被重新点亮的灯。像没发生过，又什么都记得。醒来的还是不是我？',
     },
 ];

@@ -1,23 +1,23 @@
 /**
  * 捏人器 PSD 整批导入（开发模式）。
  *
- * 画师在一个 PSD 里按"图层组 = 一个部件"组织素材，直接把整个 PSD 丢进来，
- * 免去逐张导出 / 重命名 / 上传的流程。约定：
+ * 画师在一个 PSD 里按"顶层图层组 = 一个类目，组内每个图层 = 一个部件"组织素材，
+ * 直接把整个 PSD 丢进来，免去逐张导出 / 重命名 / 上传的流程。约定：
  *
  * - 画布须与捏人器素材同规格（472×472 正方形；过大会自动缩到 944 以内）。
- *   所有图层按其在画布上的位置合成，锚点天然对齐。
- * - 顶层"图层组"= 一个部件；顶层散图层也算一个部件。
- * - 组名 / 图层名格式：`类目 名称`，类目支持中文别名或英文 key，
- *   如 `前发 云朵刘海`、`earhair 长鬓发`、`后发1-马尾`。识别不出的类目在
- *   开发面板里手动选。
- * - 组内 **正片叠底（multiply）图层 = 这个部件投出去的阴影**（如刘海投在
- *   耳发/脸上的影子）。导入时预转成"黑色 + alpha"的普通图层（中性正片叠底
- *   B×g 与 alpha=1-g 的纯黑覆盖数学等价），存进 shadowSrc；渲染时垫在部件
- *   颜色层下方、不参与染色。注意：带颜色的阴影会被中性化（只保留明度）。
- * - 组内其余普通图层合成为部件本体（src）。本体上的自阴影/高光直接画在
- *   颜色层里即可——换色是按像素明度重上色的，明暗关系会保留。
+ *   每个图层按其在画布上的位置导出，锚点天然对齐。
+ * - **顶层图层组 = 一个类目**（如"眼睛"文件夹），组名给出类目；
+ *   **组内每个图层 = 一个独立部件**（如眼睛组里"杏眼""圆眼""狐狸眼"各一个图层，各成一个部件），
+ *   图层名 = 部件显示名，类目继承所在组。
+ *   组内若有子图层组，则该子组的图层合并成一个部件（少数需要多图层的部件用得上）。
+ * - 顶层散图层（不在组里）= 一个部件，类目从它自己的名字猜。
+ * - 组名 / 图层名里的类目别名支持中文或英文 key，如 `前发`、`earhair`、`后发1`。
+ *   识别不出类目的，在开发面板里手动选。
  * - 可换色标记：名字带 `#色` / `#tint` 强制可换色，带 `#原色` / `#notint`
- *   强制不可换色；不标记时头发类目默认可换色，其余默认不可。
+ *   强制不可换色；不标记时头发四类 + 眼睛默认可换色，其余默认不可。部件的自阴影/高光
+ *   直接画在图层里即可——换色按像素明度重上色，明暗关系会保留。
+ *
+ * 注意：不再有"正片叠底 = 投影层"那套（简化：一个图层就是一个部件，没有单独的阴影层）。
  */
 
 export interface ParsedPsdPart {
@@ -27,7 +27,7 @@ export interface ParsedPsdPart {
     tintable: boolean;
     /** 部件本体（透明 PNG data URL，画布尺寸） */
     src: string;
-    /** 正片叠底层预转出来的阴影（黑色+alpha 普通图层）；没有则无 */
+    /** @deprecated 旧「正片叠底=投影层」机制的产物，新导入不再产出；字段保留仅为下游类型兼容。 */
     shadowSrc?: string;
     warnings: string[];
 }
@@ -55,7 +55,8 @@ const CATEGORY_ALIASES: [string, string[]][] = [
     ['decor', ['decor', '配饰', '饰品', '装饰']],
 ];
 
-const HAIR_KEYS = new Set(['fronthair', 'earhair', 'back1', 'back2']);
+// 不带 #色/#原色 标记时，这些类目默认「可换色」：头发四类 + 眼睛。其余默认不可换色。
+const DEFAULT_TINTABLE_KEYS = new Set(['fronthair', 'earhair', 'back1', 'back2', 'eyes']);
 
 /** 输出上限：超过就整体缩到 472（数据存 IndexedDB，别塞几千像素的 data URL） */
 const MAX_OUT = 944;
@@ -86,33 +87,6 @@ export function parseLayerName(raw: string, hasCategory = true): { categoryKey: 
     return { categoryKey: matched.key, name: rest || name, tintable };
 }
 
-/**
- * 正片叠底像素 → 普通图层像素（原地改写）：黑色 + alpha = a×(1-明度)。
- * 中性（灰）阴影下两者数学等价：B×g == B×(1-a)，a = 1-g。
- * 返回是否发现带色阴影（会被中性化，只保留深浅）。
- */
-export function multiplyPixelsToNormal(px: Uint8ClampedArray): boolean {
-    let hadColor = false;
-    for (let i = 0; i < px.length; i += 4) {
-        const a = px[i + 3];
-        if (a === 0) continue;
-        const r = px[i], g = px[i + 1], b = px[i + 2];
-        if (Math.max(r, g, b) - Math.min(r, g, b) > 24) hadColor = true;
-        const gray = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-        px[i] = 0; px[i + 1] = 0; px[i + 2] = 0;
-        px[i + 3] = Math.round(a * (1 - gray));
-    }
-    return hadColor;
-}
-
-function multiplyToNormal(canvas: HTMLCanvasElement): { canvas: HTMLCanvasElement; hadColor: boolean } {
-    const ctx = canvas.getContext('2d')!;
-    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const hadColor = multiplyPixelsToNormal(img.data);
-    ctx.putImageData(img, 0, 0);
-    return { canvas, hadColor };
-}
-
 function makeCanvas(w: number, h: number): HTMLCanvasElement {
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
@@ -139,9 +113,26 @@ function exportDataUrl(canvas: HTMLCanvasElement, scale: number): string {
 function flattenLeaves(node: any, acc: any[] = []): any[] {
     for (const child of node.children || []) {
         if (child.children) flattenLeaves(child, acc);
-        else acc.push(child);
+        else if (!child.hidden) acc.push(child);
     }
     return acc;
+}
+
+/** 把一组叶子图层按画布位置正常合成到一张画布（不支持的混合模式按普通处理并告警）。 */
+function compositeLeaves(leaves: any[], W: number, H: number, warnings: string[]): HTMLCanvasElement {
+    const canvas = makeCanvas(W, H);
+    const ctx = canvas.getContext('2d')!;
+    for (const layer of leaves) {
+        if (!layer.canvas) continue;
+        const bm = layer.blendMode;
+        if (bm && bm !== 'normal' && bm !== 'pass through') {
+            warnings.push(`图层「${layer.name || '?'}」混合模式 ${bm} 不支持，按普通处理`);
+        }
+        ctx.globalAlpha = typeof layer.opacity === 'number' ? layer.opacity : 1;
+        ctx.drawImage(layer.canvas, layer.left || 0, layer.top || 0);
+        ctx.globalAlpha = 1;
+    }
+    return canvas;
 }
 
 export async function parseCreatorPsd(buffer: ArrayBuffer): Promise<PsdImportResult> {
@@ -154,58 +145,61 @@ export async function parseCreatorPsd(buffer: ArrayBuffer): Promise<PsdImportRes
     const scale = W > MAX_OUT ? TARGET / W : 1;
 
     const parts: ParsedPsdPart[] = [];
-    // 顶层：组 = 部件；散图层也算一个部件
+    // 顶层组 = 类目；组内每个图层（或子组）= 一个部件。顶层散图层 = 一个部件（类目从自己名字猜）。
     for (const top of psd.children || []) {
         if (top.hidden) continue;
-        const leaves = top.children ? flattenLeaves(top).filter(l => !l.hidden) : [top];
-        if (!leaves.length) continue;
 
-        const colorCanvas = makeCanvas(W, H);
-        const shadowCanvas = makeCanvas(W, H);
-        const colorCtx = colorCanvas.getContext('2d')!;
-        const shadowCtx = shadowCanvas.getContext('2d')!;
-        const partWarnings: string[] = [];
-        let shadowCount = 0;
-
-        for (const layer of leaves) {
-            if (!layer.canvas) continue;
-            const isMultiply = layer.blendMode === 'multiply';
-            const ctx = isMultiply ? shadowCtx : colorCtx;
-            if (isMultiply) {
-                // 多张正片叠底层之间也按 multiply 叠（等效于各自转 alpha 后普通叠加）
-                ctx.globalCompositeOperation = shadowCount === 0 ? 'source-over' : 'multiply';
-                shadowCount++;
-            } else if (layer.blendMode && layer.blendMode !== 'normal' && layer.blendMode !== 'pass through') {
-                partWarnings.push(`图层「${layer.name || '?'}」混合模式 ${layer.blendMode} 不支持，按普通处理`);
+        if (top.children) {
+            // —— 顶层组 = 类目 ——
+            const groupParsed = parseLayerName(top.name || ''); // 取类目 + 可能的组级 tint
+            const catKey = groupParsed.categoryKey;
+            if (!catKey) {
+                warnings.push(`组「${top.name || '?'}」没识别出类目，组内部件需在面板手动选类目`);
             }
-            ctx.globalAlpha = typeof layer.opacity === 'number' ? layer.opacity : 1;
-            ctx.drawImage(layer.canvas, layer.left || 0, layer.top || 0);
-            ctx.globalAlpha = 1;
+            let made = 0;
+            for (const child of top.children) {
+                if (child.hidden) continue;
+                // 子级：图层 = 一个部件；子组 = 合并其图层成一个部件
+                const leaves = child.children ? flattenLeaves(child) : (child.canvas ? [child] : []);
+                if (!leaves.length) continue;
+                const partWarnings: string[] = [];
+                const canvas = compositeLeaves(leaves, W, H, partWarnings);
+                if (!hasInk(canvas)) continue;
+                // 部件名 + tint 来自子级名（类目已由组给出，故 hasCategory=false 只取名字/标记）
+                const childParsed = parseLayerName(child.name || '', false);
+                const tintable = childParsed.tintable !== null
+                    ? childParsed.tintable
+                    : (groupParsed.tintable !== null ? groupParsed.tintable : DEFAULT_TINTABLE_KEYS.has(catKey || ''));
+                parts.push({
+                    categoryKey: catKey,
+                    name: childParsed.name || child.name || '',
+                    tintable,
+                    src: exportDataUrl(canvas, scale),
+                    warnings: partWarnings,
+                });
+                made++;
+            }
+            if (!made) warnings.push(`组「${top.name || '?'}」里没有可用图层`);
+        } else {
+            // —— 顶层散图层 = 一个部件（类目从自己名字猜）——
+            if (!top.canvas) continue;
+            const partWarnings: string[] = [];
+            const canvas = compositeLeaves([top], W, H, partWarnings);
+            if (!hasInk(canvas)) {
+                warnings.push(`「${top.name || '?'}」是空图层，跳过`);
+                continue;
+            }
+            const parsed = parseLayerName(top.name || '');
+            parts.push({
+                categoryKey: parsed.categoryKey,
+                name: parsed.name,
+                tintable: parsed.tintable !== null ? parsed.tintable : DEFAULT_TINTABLE_KEYS.has(parsed.categoryKey || ''),
+                src: exportDataUrl(canvas, scale),
+                warnings: partWarnings,
+            });
         }
-
-        if (!hasInk(colorCanvas)) {
-            warnings.push(`「${top.name || '?'}」本体图层是空的，跳过`);
-            continue;
-        }
-
-        const parsed = parseLayerName(top.name || '');
-        let shadowSrc: string | undefined;
-        if (shadowCount > 0) {
-            const { canvas: sh, hadColor } = multiplyToNormal(shadowCanvas);
-            if (hadColor) partWarnings.push('阴影带颜色，已中性化（只保留深浅）');
-            if (hasInk(sh)) shadowSrc = exportDataUrl(sh, scale);
-        }
-
-        parts.push({
-            categoryKey: parsed.categoryKey,
-            name: parsed.name,
-            tintable: parsed.tintable !== null ? parsed.tintable : HAIR_KEYS.has(parsed.categoryKey || ''),
-            src: exportDataUrl(colorCanvas, scale),
-            shadowSrc,
-            warnings: partWarnings,
-        });
     }
 
-    if (!parts.length) warnings.push('没解析出任何部件：确认顶层是"图层组=一个部件"的结构');
+    if (!parts.length) warnings.push('没解析出任何部件：确认结构是"顶层组=类目，组内每个图层=一个部件"');
     return { parts, warnings, docWidth: W, docHeight: H };
 }

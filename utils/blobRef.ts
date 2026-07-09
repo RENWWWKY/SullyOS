@@ -118,6 +118,17 @@ export async function migrateDataUrlToRef(dataUrl: string): Promise<string> {
 }
 
 /**
+ * 把单个值从令牌解析成可直接用的 data URL（读 Blob → base64）；非令牌原样返回。
+ * 用在必须拿 base64 字符串的消费点（如跨 iframe postMessage 的捏人器部件）。
+ * Blob 已丢时返回空串（避免把死令牌当 img src 用）。
+ */
+export async function resolveRefToDataUrl(value: string): Promise<string> {
+    if (!isBlobRef(value)) return value;
+    const blob = await getBlobForRef(value);
+    return blob ? blobToDataUrl(blob) : '';
+}
+
+/**
  * 深度遍历对象树，把所有 `blobref:<id>` 字符串原地替换成对应的 data URL（读 Blob 转 base64）。
  * 备份导出前调用，令牌随之变回 data:image，交给既有 zip 抽取管线处理。解析不到的令牌置空串
  * （图已丢，避免导出一个恢复端认不得的死令牌）。原地修改传入对象，调用方须传独立副本。

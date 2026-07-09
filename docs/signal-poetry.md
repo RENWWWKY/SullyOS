@@ -129,5 +129,7 @@
 ## 注意
 
 - **诗不进本地 IndexedDB**：后端是唯一源头，UI 实时拉取（诗集 gallery / 当前诗）；本地只留 `vr_card` 消息（已随聊天记录备份）。
+- **备份覆盖**（设置 → 导出/导入）：身份 deviceId + 后端地址随 `vrPostOffice`（信和诗共用）；`signal_my_authorship`（句子归属「你·角色」）+ `signal_my_lines`（反复用清单）随 `vrSignal`（`exportSignalLocal`/`importSignalLocal`，接线在 `db.ts` 与 `OSContext` 两条导出路径）。耳语是取即焚瞬态、admin token 故意不导出。
+- **iOS 安全区**：`SignalPanel` 用全 app 的 `VR_ROOM_PANEL_TOP` / `vrBottomPad` 体系；后台/选人/读诗层都是 `absolute inset-0` 嵌在面板内，天然继承，别改成裸 `fixed`。
 - **去用户中心化**：prompt 明确这是写给虚空和陌生人的现代诗，不是写给用户的情书。
 - **审核**：MVP 未做公开点踩删诗（删多人协作的整首太重）；如需可走 admin 端点。后续若加，建议按句删 / 仅隐藏，而非物理删整首。

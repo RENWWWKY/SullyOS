@@ -1133,7 +1133,7 @@ export type WorldHomeMode = 'light' | 'medium' | 'heavy';
  * - real: 真实时间——演绎进各角色的聊天与记忆（world_card），适合「真实系角色」。
  *         真实使用里中间会穿插大量真人聊天，卡片自然稀疏，不会刷屏。
  * - sim:  模拟时间——可自定义起始年月日，**不进记忆/聊天**；适合给 OC 们开小剧场图一乐。
- *         每 20 天（= 40 个半天/轮）自动结一卷：生成一份小说体总结（含人物关系动态走向
+ *         每 20 天（= 80 轮，一天四段：早/中/晚/凌晨）自动结一卷：生成一份小说体总结（含人物关系动态走向
  *         与评价），归档这 20 天原文，往后只把「该角色单方面视角的总结 + ta 最后一天 +
  *         本卷沉淀的氛围」分开喂回各角色——避免角色被迫开上帝视角。
  */
@@ -1247,7 +1247,8 @@ export interface WorldProfile {
     timeMode?: WorldTimeMode;
     /** sim 模式的起始日期（不设时按创建当天） */
     simStartDate?: WorldSimDate;
-    /** real 模式：世界已演到的「现实段」（早/中/晚跟着真实时钟走）。dayKey=YYYY-MM-DD，seg=0早/1中/2晚。
+    /** real 模式：世界已演到的「现实段」（早/中/晚/凌晨跟着真实时钟走）。dayKey=YYYY-MM-DD，
+     *  seg=0早/1中/2晚/3凌晨（凌晨发生在 dayKey **次日**的 0~5 点，排在该剧情日末尾以保证段序单调）。
      *  只能补当天错过的段，过了今天就补不了；未演过时为空。 */
     realClock?: { dayKey: string; seg: number };
     /** sim 模式：已被卷入章节总结的剧情时钟数（round ≤ 此值的原文已归档，不再喂原文） */
@@ -1273,10 +1274,13 @@ export interface WorldProfile {
     directives?: WorldDirective[];
     /** 社交动态的互动：key = `${round}_${charId}_${postIdx}`，值含点赞数 + 评论（NPC/路人）。 */
     feedReactions?: Record<string, { likes: number; comments: { from: string; text: string }[] }>;
-    /** 每天离线 tick 的时段（早/午/晚），空数组 = 仅手动观测推进 */
-    offlineTickSlots?: ('morning' | 'noon' | 'evening')[];
-    /** 剧情时钟：累计推进的半天数（0 = 第1天白天） */
+    /** 每天离线 tick 的时段（凌晨/早/午/晚），空数组 = 仅手动观测推进 */
+    offlineTickSlots?: ('latenight' | 'morning' | 'noon' | 'evening')[];
+    /** 剧情时钟：累计推进的段数（0 = 第1天早上；一天四段：早/中/晚/凌晨） */
     storyClock: number;
+    /** storyClock/simSummarizedClock 的「每天段数」版本：旧存档（无此字段）= 3 段（早中晚），
+     *  4 = 含凌晨的四段制。加载/演绎时经 migrateWorldDaySegs 自动迁移。 */
+    clockSegs?: number;
     /** 生成内容是否注入各成员的 1v1 聊天（默认 true） */
     injectToChat?: boolean;
     /** 该世界专属 API 覆盖；不设则回落全局 apiConfig */
@@ -1782,6 +1786,32 @@ export interface SpecialMomentRecord {
     customData?: Record<string, any>;
 }
 
+// --- QQ捏人工坊（神经链接） ---
+
+/** 工坊槽位：room=小小窝房间立绘 / vr=彼方 chibi / like520=特别时光 520 大头贴 */
+export type ChibiStudioSlotId = 'room' | 'vr' | 'like520';
+
+export interface ChibiStudioSlot {
+    /** 捏人器导出的完整 state（选件+换色+翻转…），再编辑时经 init.savedState 整套还原 */
+    state?: any;
+    /**
+     * 透明 PNG dataURL 兜底展示图。room/vr 的形象本体以各 App 自己的字段为准
+     * （sprites.chibi / vrState.chibi.img）；like520 未通关时靠这里展示 + 预填活动捏人器。
+     */
+    img?: string;
+    updatedAt?: number;
+}
+
+/**
+ * QQ捏人工坊：统一管理一只角色在三处的 Q 版形象，可各捏各的、也可一键同步。
+ * 图片本体写进各 App 自己的消费字段，这里主要存「再编辑用的完整 state」。
+ */
+export interface ChibiStudioData {
+    room?: ChibiStudioSlot;
+    vr?: ChibiStudioSlot;
+    like520?: ChibiStudioSlot;
+}
+
 // --- BANK / SHOP GAME TYPES (NEW) ---
 export interface BankTransaction {
     id: string;
@@ -2015,6 +2045,8 @@ export interface CharacterProfile {
   description: string;
   systemPrompt: string;
   worldview?: string;
+  /** 角色分组：指向 CharacterGroup.id；空或指向已删分组 = 未分组。仅本地组织用，不随角色卡导出 */
+  groupId?: string;
   memories: MemoryFragment[];
   refinedMemories?: Record<string, string>;
   activeMemoryMonths?: string[];
@@ -2045,6 +2077,9 @@ export interface CharacterProfile {
 
   savedDateState?: DateState;
   specialMomentRecords?: Record<string, SpecialMomentRecord>;
+
+  /** QQ捏人工坊（神经链接）：三处 Q 版形象的捏人器 state 与 520 兜底图，见 ChibiStudioData */
+  chibiStudio?: ChibiStudioData;
 
   // 小红书 per-character toggle
   xhsEnabled?: boolean;
@@ -2263,6 +2298,19 @@ export interface CharacterProfile {
   vrState?: VRWorldCharState;
 }
 
+/**
+ * 角色分组（神经链接里的"文件夹"）：纯组织用途，解决角色太多时选择列表过长的问题。
+ * 注意与下面的 GroupProfile（群聊）无关——角色通过 CharacterProfile.groupId 指向分组，
+ * 删除分组只会让组内角色回到「未分组」，不会删角色。
+ */
+export interface CharacterGroup {
+    id: string;
+    name: string;
+    /** 排序权重（暂未在 UI 暴露，缺省按 createdAt 先后） */
+    order?: number;
+    createdAt?: number;
+}
+
 export interface GroupProfile {
     id: string;
     name: string;
@@ -2276,7 +2324,7 @@ export interface GroupProfile {
     privateContextCap?: number;
 }
 
-export interface CharacterExportData extends Omit<CharacterProfile, 'id' | 'memories' | 'refinedMemories' | 'activeMemoryMonths' | 'impression'> {
+export interface CharacterExportData extends Omit<CharacterProfile, 'id' | 'memories' | 'refinedMemories' | 'activeMemoryMonths' | 'impression' | 'groupId'> {
     version: number;
     type: 'sully_character_card';
     embeddedTheme?: ChatTheme;
@@ -2642,7 +2690,15 @@ export interface LifeRecord {
     note?: string;
 }
 
-/** 药盒「计划」：每天几点吃什么药（每日打卡产生 module='med' 的 LifeRecord） */
+/**
+ * 药盒「计划」：像设长期闹钟一样只写一次，每天按频率派生"今日待服"
+ * （打卡产生 module='med' 的 LifeRecord）。
+ * - planKind 'longterm'：长期在服（保健品等），无期限；
+ * - planKind 'course'：短期疗程，startDate ~ endDate 之间才生效。
+ * - intervalDays：服药频率，1=每天（默认）、2=每隔一天、3=每三天…
+ *   锚点日取 startDate（无则取创建当天），按天数差取模判断今天是否该吃。
+ * 旧数据无这些字段 → 视为长期 + 每天，行为与旧版一致。
+ */
 export interface MedPlan {
     id: string;
     name: string;              // 药名
@@ -2651,6 +2707,10 @@ export interface MedPlan {
     note?: string;
     enabled: boolean;
     createdAt: number;
+    planKind?: 'longterm' | 'course';
+    intervalDays?: number;     // 默认 1（每天）
+    startDate?: string;        // YYYY-MM-DD（course 必填；也作为 interval 锚点）
+    endDate?: string;          // YYYY-MM-DD（course 专用，含当天）
 }
 
 /** 生活记录全局设置（单例 id='main'） */
@@ -2663,6 +2723,10 @@ export interface LifeRecordSettings {
      * 隐藏 = 前端不再显示 + 对所有角色断掉该模块注入与代记（优先级高于角色小开关）。
      */
     hiddenModules?: LifeRecordModule[];
+    /** 锻炼周计划：每周目标次数（角色会据此监督执行） */
+    exerciseWeeklyGoal?: number;
+    /** 锻炼周计划：文字规划（如"周一跑步 / 周四力量"），会注入给角色 */
+    exercisePlanNote?: string;
 }
 
 export interface HandbookEntry {
@@ -2900,7 +2964,8 @@ export interface FullBackupData {
     customIcons?: Record<string, string>;
     appearancePresets?: AppearancePreset[];
     characters?: CharacterProfile[];
-    groups?: GroupProfile[]; 
+    characterGroups?: CharacterGroup[];
+    groups?: GroupProfile[];
     messages?: Message[];
     customThemes?: ChatTheme[];
     savedEmojis?: Emoji[]; 
@@ -2934,6 +2999,7 @@ export interface FullBackupData {
     worlds?: WorldProfile[];                   // 家园·世界定义
     worldEpisodes?: WorldEpisode[];            // 家园·演绎历史
     vrPostOffice?: Record<string, string>;     // 邮局本机配置：身份 deviceId / 后端地址（存 localStorage）
+    vrSignal?: Record<string, string>;         // 信号坠落处本机记录：句子归属「你·角色」+ 反复用清单（存 localStorage）
     worldHomeLocal?: Record<string, string>;   // 家园本机配置：全局 API + 文风收藏（存 localStorage）
     luckinLocal?: Record<string, string>;      // 瑞幸：token + 启用状态（存 localStorage）
     mcdLocal?: Record<string, string>;         // 麦当劳：token + 启用状态（存 localStorage）

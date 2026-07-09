@@ -55,6 +55,24 @@ export function getMyRecentLines(charName: string): string[] {
     catch { return []; }
 }
 
+// ── 备份用：把「你·角色」句子归属与反复用记录随「设置 → 导出/导入备份」带走 ──
+// deviceId/后端地址由邮局的 exportPostOfficeLocal 携带（信和诗共用身份），这里只补诗自己的本机记录。
+// 耳语（signal_whisper）是取即焚的瞬态，故意不进备份。
+const BACKUP_KEYS = [AUTHOR_KEY, MY_LINES_KEY] as const;
+export function exportSignalLocal(): Record<string, string> | undefined {
+    try {
+        const out: Record<string, string> = {};
+        for (const k of BACKUP_KEYS) { const v = localStorage.getItem(k); if (v) out[k] = v; }
+        return Object.keys(out).length ? out : undefined;
+    } catch { return undefined; }
+}
+export function importSignalLocal(data: Record<string, string> | null | undefined): void {
+    if (!data || typeof data !== 'object') return;
+    try {
+        for (const k of BACKUP_KEYS) if (typeof data[k] === 'string' && data[k]) localStorage.setItem(k, data[k]);
+    } catch { /* ignore */ }
+}
+
 // ── 用户的「耳语」：参与时留给角色的一句话。不进诗、不上后端，只注入这一次 prompt。
 // 用 localStorage 走一趟（participate → triggerNow → runSession），取即焚。
 const WHISPER_KEY = 'signal_whisper';

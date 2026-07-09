@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseLayerName, multiplyPixelsToNormal } from './psdCreatorImport';
+import { parseLayerName } from './psdCreatorImport';
 
 describe('parseLayerName', () => {
     it('中文别名 + 空格', () => {
@@ -35,47 +35,10 @@ describe('parseLayerName', () => {
     it('只有类目没有名字时名字回退为原始串', () => {
         expect(parseLayerName('前发')).toEqual({ categoryKey: 'fronthair', name: '前发', tintable: null });
     });
-});
 
-describe('multiplyPixelsToNormal', () => {
-    /** 正片叠底合成：B×m，m = 1-a+a×c（带不透明度的乘数） */
-    const multiplyComposite = (backdrop: number, gray: number, alpha: number) =>
-        backdrop * (1 - alpha + alpha * (gray / 255));
-    /** 普通合成黑色：B×(1-a) + 0×a */
-    const normalBlackComposite = (backdrop: number, outAlpha: number) =>
-        backdrop * (1 - outAlpha / 255);
-
-    it('中性灰阴影：转换后普通合成与原正片叠底逐点等价（±1 量化误差）', () => {
-        for (const gray of [0, 64, 128, 200, 255]) {
-            for (const srcAlpha of [255, 128]) {
-                const px = new Uint8ClampedArray([gray, gray, gray, srcAlpha]);
-                multiplyPixelsToNormal(px);
-                expect(px[0]).toBe(0); // 输出必须是纯黑
-                for (const backdrop of [255, 180, 90]) {
-                    const want = multiplyComposite(backdrop, gray, srcAlpha / 255);
-                    const got = normalBlackComposite(backdrop, px[3]);
-                    expect(Math.abs(want - got)).toBeLessThanOrEqual(1.5);
-                }
-            }
-        }
-    });
-
-    it('纯白像素（不产生变暗）→ alpha 0', () => {
-        const px = new Uint8ClampedArray([255, 255, 255, 255]);
-        multiplyPixelsToNormal(px);
-        expect(px[3]).toBe(0);
-    });
-
-    it('全透明像素不动', () => {
-        const px = new Uint8ClampedArray([50, 50, 50, 0]);
-        expect(multiplyPixelsToNormal(px)).toBe(false);
-        expect(Array.from(px)).toEqual([50, 50, 50, 0]);
-    });
-
-    it('带色阴影报告 hadColor 并被中性化', () => {
-        const px = new Uint8ClampedArray([120, 80, 200, 255]);
-        expect(multiplyPixelsToNormal(px)).toBe(true);
-        expect(px[0]).toBe(0);
-        expect(px[3]).toBeGreaterThan(0);
+    it('hasCategory=false 时不认类目、整名保留（组内图层名走这条：类目来自组）', () => {
+        expect(parseLayerName('杏眼', false)).toEqual({ categoryKey: null, name: '杏眼', tintable: null });
+        // tint 标记仍会被剥出
+        expect(parseLayerName('狐狸眼 #色', false)).toEqual({ categoryKey: null, name: '狐狸眼', tintable: true });
     });
 });
