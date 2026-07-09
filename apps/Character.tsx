@@ -13,6 +13,7 @@ import { ContextBuilder } from '../utils/context';
 import { formatMessageWithTime, formatMessageForPrompt } from '../utils/messageFormat';
 import { DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
 import ImpressionPanel from '../components/character/ImpressionPanel';
+import RoomPlatePanel from '../components/character/RoomPlatePanel';
 import MemoryArchivist from '../components/character/MemoryArchivist';
 import { safeFetchJson, extractContent } from '../utils/safeApi';
 import { fetchMiniMaxVoices, MiniMaxVoiceItem } from '../utils/minimaxVoice';
@@ -62,7 +63,7 @@ const Character: React.FC = () => {
   const { closeApp, openApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, deleteCharacter, apiConfig, addToast, userProfile, worldbooks, addWorldbook } = useOS();
   const [view, setView] = useState<'list' | 'detail'>('list');
   const [charPage, setCharPage] = useState(0); // 角色列表分页（每页 6 个）
-  const [detailTab, setDetailTab] = useState<'identity' | 'memory' | 'impression'>('identity');
+  const [detailTab, setDetailTab] = useState<'identity' | 'memory' | 'impression' | 'plates'>('identity');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<CharacterProfile | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
@@ -1027,6 +1028,7 @@ ${isInitialGeneration ? `
                        <button onClick={() => setDetailTab('identity')} className={`pb-2 transition-colors relative ${detailTab === 'identity' ? 'text-slate-800' : ''}`}>设定{detailTab === 'identity' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
                        <button onClick={() => setDetailTab('memory')} className={`pb-2 transition-colors relative ${detailTab === 'memory' ? 'text-slate-800' : ''}`}>记忆 ({(formData.memories || []).length}){detailTab === 'memory' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
                        <button onClick={() => setDetailTab('impression')} className={`pb-2 transition-colors relative ${detailTab === 'impression' ? 'text-slate-800' : ''}`}>印象{detailTab === 'impression' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
+                       <button onClick={() => setDetailTab('plates')} className={`pb-2 transition-colors relative ${detailTab === 'plates' ? 'text-slate-800' : ''}`}>门牌{detailTab === 'plates' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
                    </div>
                  </div>
                </div>
@@ -1358,6 +1360,10 @@ ${isInitialGeneration ? `
                            onUpdateImpression={(newImp) => handleChange('impression', newImp)}
                            onDelete={() => handleChange('impression', undefined)}
                        />
+                   )}
+
+                   {detailTab === 'plates' && formData.id && (
+                       <RoomPlatePanel charId={formData.id} userName={userProfile.name} />
                    )}
                </div>
            </div>

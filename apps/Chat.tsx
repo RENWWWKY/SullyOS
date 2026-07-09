@@ -2760,6 +2760,9 @@ const Chat: React.FC = () => {
                 if (r.selfInsights.length) groups.push({ key: 'insights', label: '自我领悟', icon: '💡', accent: '#f59e0b', items: r.selfInsights.map(t => ({ content: t })) });
                 if (r.selfConfused.length) groups.push({ key: 'confused', label: '新的自我困惑', icon: '🌀', accent: '#6366f1', items: r.selfConfused.map(e => ({ content: e.content })) });
                 if (r.synthesizedUser.length) groups.push({ key: 'synth', label: '用户认知整合', icon: '👤', accent: '#0ea5e9', items: r.synthesizedUser.map(e => ({ content: e.content, sub: e.category })) });
+                if (r.worries?.length) groups.push({ key: 'worries', label: '回看引发的担忧', icon: '😟', accent: '#f97316', items: r.worries.map(e => ({ content: e.content })) });
+                if (r.aspirations?.length) groups.push({ key: 'aspirations', label: '新的期盼', icon: '🌟', accent: '#eab308', items: r.aspirations.map(e => ({ content: e.content })) });
+                if (r.distilled?.length) groups.push({ key: 'distilled', label: '沉淀到门牌', icon: '🚪', accent: '#a855f7', items: r.distilled.map(e => ({ content: e.content })) });
                 if (r.fulfilled.length) groups.push({ key: 'fulfilled', label: '期盼实现', icon: '✨', accent: '#22c55e', items: r.fulfilled.map(e => ({ content: e.content })) });
                 if (r.disappointed.length) groups.push({ key: 'disappointed', label: '期盼落空', icon: '🍂', accent: '#94a3b8', items: r.disappointed.map(e => ({ content: e.content })) });
                 if (r.faded.length) groups.push({ key: 'faded', label: '淡忘', icon: '🌫️', accent: '#cbd5e1', items: r.faded.map(e => ({ content: e.content })) });
