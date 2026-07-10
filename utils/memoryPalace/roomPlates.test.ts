@@ -4,6 +4,9 @@ import {
     violatesBedroomRule,
     formatRoomPlatesSection,
     pickMaterialLines,
+    parseSubmissionLine,
+    collectBootstrapLines,
+    BOOTSTRAP_MAX_LINES_PER_ROOM,
 } from './roomPlates';
 import type { MemoryNode, PlateEntry, RoomPlate } from './types';
 import { PLATE_ENTRY_CAPS, PLATE_ENTRY_HARD_MAX_CHARS } from './types';
@@ -159,6 +162,67 @@ describe('pickMaterialLines — 门牌原料挑选（recency 窗口 + 锚点）'
         expect(lines).toHaveLength(15);
         expect(lines).not.toContain('内容-archived');
         expect(lines).not.toContain('内容-other_room');
+    });
+});
+
+describe('collectBootstrapLines — 历史回填原料（老用户补课）', () => {
+    const T0 = 1_600_000_000_000;
+    function node(id: string, over: Partial<import('./types').MemoryNode> = {}): import('./types').MemoryNode {
+        return {
+            id, charId: 'c1', content: `内容-${id}`, room: 'user_room',
+            tags: [], importance: 5, mood: 'peaceful', embedded: true,
+            createdAt: T0, lastAccessedAt: T0, accessCount: 0,
+            ...over,
+        };
+    }
+
+    it('时间正序（旧→新）——后面的批次带更新的事实，合并语义自然 supersede', () => {
+        const nodes = [
+            node('new', { createdAt: T0 + 9000 }),
+            node('old', { createdAt: T0 + 1000 }),
+            node('mid', { createdAt: T0 + 5000 }),
+        ];
+        const { lines, dropped } = collectBootstrapLines(nodes, 'user_room');
+        expect(lines).toEqual(['内容-old', '内容-mid', '内容-new']);
+        expect(dropped).toBe(0);
+    });
+
+    it('超上限丢最旧的，保留最新 N 条', () => {
+        const nodes = Array.from({ length: BOOTSTRAP_MAX_LINES_PER_ROOM + 10 }, (_, i) =>
+            node(`n_${i}`, { createdAt: T0 + i }));
+        const { lines, dropped } = collectBootstrapLines(nodes, 'user_room');
+        expect(lines).toHaveLength(BOOTSTRAP_MAX_LINES_PER_ROOM);
+        expect(dropped).toBe(10);
+        expect(lines[0]).toBe('内容-n_10'); // 最旧的 10 条被丢
+    });
+
+    it('archived 与其他房间排除', () => {
+        const nodes = [
+            node('a', { archived: true }),
+            node('b', { room: 'study' }),
+            node('c'),
+        ];
+        expect(collectBootstrapLines(nodes, 'user_room').lines).toEqual(['内容-c']);
+    });
+});
+
+describe('parseSubmissionLine — 消化候选行解析', () => {
+    it('带方括号前缀 → 拆出 tag 和正文', () => {
+        expect(parseSubmissionLine('[家庭] 父母离异，由外婆和母亲带大'))
+            .toEqual({ tag: '家庭', text: '父母离异，由外婆和母亲带大' });
+        expect(parseSubmissionLine('【重要他人】小美：大学室友'))
+            .toEqual({ tag: '重要他人', text: '小美：大学室友' });
+    });
+
+    it('无前缀 → 整行作正文', () => {
+        expect(parseSubmissionLine('我允许自己在她面前卸下坚硬的壳'))
+            .toEqual({ text: '我允许自己在她面前卸下坚硬的壳' });
+    });
+
+    it('前缀超长（>6字）不当 tag，整行作正文', () => {
+        const line = '[这是一个非常长的前缀] 正文';
+        expect(parseSubmissionLine(line).tag).toBeUndefined();
+        expect(parseSubmissionLine(line).text).toBe(line);
     });
 });
 

@@ -72,6 +72,9 @@ export {
 export {
     consolidateAllPlates, updatePlateFromBoxSummary,
     buildRoomPlatesInjection, formatRoomPlatesSection, isPlateRoom,
+    bootstrapPlatesFromHistory, arePlatesEmpty,
+    isPlateBootstrapDone, markPlateBootstrapDone,
+    getBootstrapResume, setBootstrapResume, clearBootstrapResume,
 } from './roomPlates';
 
 // 一键清空（本地 + 云端）

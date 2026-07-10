@@ -10,10 +10,12 @@ import {
     wipeAllMemoryPalace,
     exportMemoryPalace, importMemoryPalace, isMemoryPalaceExportFile,
     DigestReportDB, PLATE_TITLES,
+    bootstrapPlatesFromHistory, markPlateBootstrapDone, clearBootstrapResume,
 } from '../utils/memoryPalace';
 import type { Anticipation, MigrationProgress, DigestResult, MemoryLink, EventBox, DigestReport } from '../utils/memoryPalace';
 import { confirmExportSafety } from '../utils/exportGuard';
 import type { Message } from '../types';
+import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 
 /** 手动总结面板：每页渲染多少条聊天记录（翻页，避免一次性塞几百条 DOM 卡顿） */
 const RANGE_PAGE_SIZE = 100;
@@ -423,8 +425,9 @@ const labelClass = "text-[10px] font-bold text-slate-400 uppercase tracking-wide
 // ─── 主组件 ───────────────────────────────────────────
 
 export default function MemoryPalaceApp() {
-    const { activeCharacterId, characters, updateCharacter, setActiveCharacterId, closeApp, apiPresets, userProfile, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, updateRemoteVectorConfig, addToast, apiConfig } = useOS();
+    const { activeCharacterId, characters, updateCharacter, setActiveCharacterId, closeApp, apiPresets, userProfile, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, updateRemoteVectorConfig, addToast, apiConfig, characterGroups } = useOS();
     const char = characters.find(c => c.id === activeCharacterId);
+    const [selectGroupId, setSelectGroupId] = useState(GROUP_FILTER_ALL); // 选角色页的分组筛选
 
     const [view, setView] = useState<'picker' | 'palace' | 'room' | 'memory' | 'settings' | 'globalSettings' | 'all' | 'boxes'>('picker');
     const [selectedRoom, setSelectedRoom] = useState<MemoryRoom | null>(null);
@@ -490,6 +493,38 @@ export default function MemoryPalaceApp() {
     const [digestReports, setDigestReports] = useState<DigestReport[] | null>(null);
     const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
     useEffect(() => { setDigestReports(null); setExpandedReportId(null); }, [char?.id]);
+    // 门牌历史回填（老用户把积压立牌）
+    const [bootstrapping, setBootstrapping] = useState(false);
+    const [bootstrapStatus, setBootstrapStatus] = useState<string | null>(null);
+
+    const handleBootstrapPlates = async () => {
+        if (!char || bootstrapping) return;
+        const lightApi = memoryPalaceConfig.lightLLM;
+        if (!lightApi?.baseUrl) {
+            setBootstrapStatus('[err]请先在设置中配置副 API');
+            return;
+        }
+        setBootstrapping(true);
+        setBootstrapStatus(null);
+        try {
+            // 手动 = 从头全量重跑：清掉自动路径留下的续传进度
+            clearBootstrapResume(char.id);
+            const result = await bootstrapPlatesFromHistory(char.id, char.name, userProfile?.name, lightApi, {
+                onProgress: (done, total) => setBootstrapStatus(`正在整理第 ${done}/${total} 批历史记忆…（请留在本页）`),
+            });
+            if (result.complete) {
+                markPlateBootstrapDone(char.id);
+                clearBootstrapResume(char.id);
+            }
+            setBootstrapStatus(result.totalLines === 0
+                ? '记忆宫殿里还没有可立牌的历史'
+                : `[ok]扫过 ${result.totalLines} 条历史（${result.batches} 批），更新 ${result.updated.length} 块门牌——去神经链接「门牌」页看看`);
+        } catch (err: any) {
+            setBootstrapStatus(`[err]回填失败：${err?.message || err}`);
+        } finally {
+            setBootstrapping(false);
+        }
+    };
 
 
     // 一键清空
@@ -1406,7 +1441,10 @@ export default function MemoryPalaceApp() {
         try {
             const persona = [char.systemPrompt || '', char.worldview || ''].filter(Boolean).join('\n');
             const embApi = memoryPalaceConfig.embedding;
-            const result = await runCognitiveDigestion(char.id, char.name, persona, lightApi, true, userProfile?.name, embApi);
+            const result = await runCognitiveDigestion(
+                char.id, char.name, persona, lightApi, true, userProfile?.name, embApi,
+                (stage) => setDigestResult(stage), // 审视→回填续传→整理门牌, 逐阶段刷给用户看
+            );
             if (!result) {
                 setDigestResult('没有需要消化的内容');
             } else {
@@ -1425,6 +1463,7 @@ export default function MemoryPalaceApp() {
                 if (result.worries?.length) parts.push(`${result.worries.length} 条回看担忧`);
                 if (result.aspirations?.length) parts.push(`${result.aspirations.length} 个新期盼`);
                 if (result.distilled?.length) parts.push(`${result.distilled.length} 条沉淀到门牌`);
+                if (result.plateUpdated?.length) parts.push(`${result.plateUpdated.length} 块门牌更新`);
                 setDigestResult(parts.length > 0 ? `[ok]${parts.join('，')}` : '没有变化');
             }
             loadStats();
@@ -1801,6 +1840,10 @@ export default function MemoryPalaceApp() {
                     </div>
                 </div>
 
+                {/* 分组筛选（没建分组时不渲染） */}
+                <CharacterGroupFilterBar characters={characters} groups={characterGroups}
+                    value={selectGroupId} onChange={setSelectGroupId}
+                    className="mb-4 relative z-[1]" />
                 {characters.length === 0 ? (
                     <div
                         style={{
@@ -1814,7 +1857,7 @@ export default function MemoryPalaceApp() {
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, position: 'relative', zIndex: 1 }}>
-                        {characters.map(c => {
+                        {filterCharactersByGroup(characters, characterGroups, selectGroupId).map(c => {
                             const isActive = c.id === activeCharacterId;
                             const palaceOn = !!(c as any).memoryPalaceEnabled;
                             const autoOn = !!(c as any).autoArchiveEnabled;
@@ -3796,6 +3839,27 @@ create table if not exists memory_vectors (
                         {digesting ? `${char.name}正在静静地回想…` : '手动触发消化'}
                     </button>
 
+                    {/* 门牌历史回填：老用户的积压不该白攒——分批扫全部历史立牌 */}
+                    {bootstrapStatus && (
+                        <div style={{ fontSize: 12, marginTop: 8, color: bootstrapStatus.startsWith('[ok]') ? '#7c3aed' : bootstrapStatus.startsWith('[err]') ? '#dc2626' : '#6b7280' }}>
+                            <StatusMessage msg={bootstrapStatus} />
+                        </div>
+                    )}
+                    <button
+                        onClick={handleBootstrapPlates}
+                        disabled={bootstrapping}
+                        style={{
+                            width: '100%', marginTop: 8, padding: '8px 0',
+                            borderRadius: 10, border: '1px solid #ddd6fe',
+                            fontSize: 12, fontWeight: 600,
+                            color: '#7c3aed', background: 'white',
+                            cursor: bootstrapping ? 'not-allowed' : 'pointer',
+                            opacity: bootstrapping ? 0.6 : 1,
+                        }}
+                    >
+                        {bootstrapping ? '正在回填…' : '从历史记忆重建门牌（老用户补课）'}
+                    </button>
+
                     {/* 消化日志：每次消化到底审视了什么、改了什么、往门牌提交了什么 */}
                     <button
                         onClick={async () => {
@@ -3860,6 +3924,11 @@ create table if not exists memory_vectors (
                                                 {report.plateUpdated.length > 0 && (
                                                     <div style={{ fontSize: 10, color: '#8b5cf6', marginTop: 6 }}>
                                                         门牌已更新：{report.plateUpdated.map(r => (PLATE_TITLES as Record<string, string>)[r] || r).join('、')}
+                                                    </div>
+                                                )}
+                                                {submitCount > 0 && report.plateUpdated.length === 0 && (
+                                                    <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 6 }}>
+                                                        ⚠️ 本次提交的候选未合并进门牌（整理未跑成或未被采纳）
                                                     </div>
                                                 )}
                                             </div>

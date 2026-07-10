@@ -80,6 +80,12 @@ const REFLECT_MAX_DISTILLS = 2;
 /** 回看窗口的条数硬上限（上次消化以来的客厅+卧室经历，超出取最近的） */
 const REFLECT_EPISODE_CAP = 30;
 
+/** 书房/用户房/自我房每次消化的候选上限：按时近取，长期用户的老积压不整批灌进
+ *  prompt——旧节点留在房间里走召回，门牌从新的相处开始长（"只从新的东西里提"）。 */
+const FRESH_CANDIDATE_CAP = 20;
+/** 阁楼每次审视的条数上限：按重要性优先。未入选的困惑仍在阁楼里，等下轮 */
+const ATTIC_CANDIDATE_CAP = 12;
+
 /** 单条消化条目（带内容快照，用于 UI 展示） */
 export interface DigestEntry {
     id: string;
@@ -101,6 +107,8 @@ export interface DigestResult {
     worries: DigestEntry[];        // 回看经历产生的担忧→阁楼
     aspirations: DigestEntry[];    // 回看经历长出的新期盼→窗台
     distilled: DigestEntry[];      // 回看经历的二次领悟→门牌候选（category=目标门牌）
+    /** 本次消化实际更新的门牌房间（含回填/兜底），供 UI 摘要展示 */
+    plateUpdated?: string[];
 }
 
 // ─── 轮数计数 & 自动触发 ─────────────────────────────
@@ -109,6 +117,45 @@ export interface DigestResult {
 const AUTO_DIGEST_ROUNDS = 50;
 const ROUND_KEY = (charId: string) => `mp_digestRounds_${charId}`;
 const LAST_DIGEST_KEY = (charId: string) => `mp_lastDigest_${charId}`;
+/**
+ * 老用户自动回填：历史欠账没还清（无完成标记）→ 消化尾声接着还。
+ * 断点续传：每次限 10 批（后台成本护栏），进度存 localStorage，跑一半
+ * 关页面/限批没跑完都能下次续上；全部批次跑完才打完成标记。
+ * 不再以"门牌全空"为条件——部分回填后门牌已非空，剩余欠账仍要还。
+ */
+async function maybeBootstrapPlates(
+    charId: string,
+    charName: string,
+    userName: string | undefined,
+    llmConfig: LightLLMConfig,
+    onProgress?: (stage: string) => void,
+): Promise<PlateRoom[]> {
+    try {
+        const {
+            bootstrapPlatesFromHistory, isPlateBootstrapDone, markPlateBootstrapDone,
+            getBootstrapResume, setBootstrapResume, clearBootstrapResume,
+        } = await import('./roomPlates');
+        if (isPlateBootstrapDone(charId)) return [];
+        // 历史 < 30 条不值得回填，常规整理够用（此时 batches=0 且不打标，等历史攒够）
+        const boot = await bootstrapPlatesFromHistory(charId, charName, userName, llmConfig, {
+            maxBatches: 10, minLines: 30,
+            startBatch: getBootstrapResume(charId),
+            onProgress: (done, total) => onProgress?.(`正在回填历史门牌（第 ${done}/${total} 批）…`),
+        });
+        if (boot.complete) {
+            markPlateBootstrapDone(charId);
+            clearBootstrapResume(charId);
+            console.log(`🚪 [Digest] 门牌历史回填已还清（共 ${boot.neededBatches} 批）`);
+        } else if (boot.batches > 0) {
+            setBootstrapResume(charId, boot.nextBatch);
+            console.log(`🚪 [Digest] 门牌回填进度 ${boot.nextBatch}/${boot.neededBatches}，下次消化续传`);
+        }
+        return boot.updated;
+    } catch (e: any) {
+        console.warn(`🚪 [Digest] 门牌自动回填失败（不影响消化）: ${e?.message || e}`);
+        return [];
+    }
+}
 
 /** 获取当前已累积的轮数 */
 export function getDigestRoundCount(charId: string): number {
@@ -168,21 +215,38 @@ async function gatherDigestMaterial(charId: string): Promise<{
     const isFreshCandidate = (n: MemoryNode) =>
         n.origin !== 'digestion' && !n.digestedAt && !digestedSourceIds.has(n.id);
 
-    // 阁楼：所有未消化的困惑（resolve/deepen/fade 修改原节点，不会产生衍生重复，无需过滤）
-    const atticNodes = allNodes.filter(n => n.room === 'attic');
+    // 按时近取前 N 条（cap 内的下轮继续，cap 外的老积压留在房间里走召回）
+    const capByRecency = (nodes: MemoryNode[], cap: number) =>
+        nodes.sort((a, b) => b.createdAt - a.createdAt).slice(0, cap);
+
+    // 阁楼：未化解的困惑反复参与，直到 resolve/fade。按重要性优先取 cap 条，
+    // 防长期用户的困惑积压撑爆 prompt（落选的还在阁楼，等下轮）
+    const atticNodes = allNodes
+        .filter(n => n.room === 'attic')
+        .sort((a, b) => b.importance - a.importance || b.createdAt - a.createdAt)
+        .slice(0, ATTIC_CANDIDATE_CAP);
 
     // 窗台期盼：active 和 anchor 的
     const allAnts = await AnticipationDB.getByCharId(charId);
     const anticipations = allAnts.filter(a => a.status === 'active' || a.status === 'anchor');
 
     // 书房：高访问次数的知识（accessCount >= 3 说明被反复提及），且未被内化过
-    const studyNodes = allNodes.filter(n => n.room === 'study' && n.accessCount >= 3 && isFreshCandidate(n));
+    const studyNodes = capByRecency(
+        allNodes.filter(n => n.room === 'study' && n.accessCount >= 3 && isFreshCandidate(n)),
+        FRESH_CANDIDATE_CAP,
+    );
 
-    // 用户房间：所有关于用户的信息（排除已整合过的，以及整合产出本身）
-    const userRoomNodes = allNodes.filter(n => n.room === 'user_room' && isFreshCandidate(n));
+    // 用户房间：未消化过的用户信息，按时近取 cap 条——长期用户的整库积压不进 prompt
+    const userRoomNodes = capByRecency(
+        allNodes.filter(n => n.room === 'user_room' && isFreshCandidate(n)),
+        FRESH_CANDIDATE_CAP,
+    );
 
-    // 自我房间：未反刍过的自我认知（排除已产生过 self_insight/self_confuse 的源，以及衍生产物自身）
-    const selfRoomNodes = allNodes.filter(n => n.room === 'self_room' && isFreshCandidate(n));
+    // 自我房间：未反刍过的自我认知，同上
+    const selfRoomNodes = capByRecency(
+        allNodes.filter(n => n.room === 'self_room' && isFreshCandidate(n)),
+        FRESH_CANDIDATE_CAP,
+    );
 
     // 最近的卧室/客厅记忆作为"最近发生了什么"的上下文
     const bedroom = allNodes.filter(n => n.room === 'bedroom');
@@ -291,8 +355,8 @@ ${material.recentContext.map(n => `- (${n.room}, ${n.mood}): ${n.content}`).join
 - "keep" — 还只是知识，没有内化
 
 对于${userLabel}的信息 [U*]：
-- "synthesize_user" — 你能从多条零散信息中提炼出一个更高层次的认知（比如：从"TA喜欢猫""TA养了两只猫""TA经常看猫视频"整合为一条关于TA与动物关系的认知）。必须附上 category（分类，如：性格特质、社交圈、成长经历、情绪模式、兴趣爱好、生活习惯、价值观、家庭关系 等）和 reflection（整合后的认知，50字以内）。
-- "keep" — 信息还太零散，不足以整合
+- "synthesize_user" — 【极少发生】想象你在为${userLabel}写一张**角色卡**：只有必须写在卡上的内容才值得整合——基础信息（身份/职业大方向/居住）、家庭结构、重要他人（亲友）、重大到足以塑造TA这个人的人生节点。阶段性状态（最近很累/工作糟心）、情绪分析、性格侧写、日常琐事一律 keep——那些留在房间里就好。必须附上 category（如：家庭、重要他人、身份、居住、重大节点）和 reflection（整合后的事实，50字以内）。
+- "keep" — 绝大多数情况（信息只是日常细节，不够角色卡级）
 
 对于自我认知 [R*]：
 ⚠️ self_insight 是极其稀有的事件。它意味着角色"想通了自己为什么是这样的"——这种领悟一旦产生就几乎等同于角色设定的自然生长，会永久地成为角色的一部分。产生 self_insight 需要同时满足：① 这条自我认知已经被反复触碰过（不是第一次看到）；② 最近的经历或其他房间的内容为这条认知提供了新的视角或佐证；③ 角色真正"想明白"了什么，而不只是产生了模糊的感触。绝大多数情况下应该选 keep。
@@ -304,7 +368,7 @@ ${material.recentEpisodes.length > 0 ? `
 ⚠️ 克制规则：**绝大多数经历就只是经历**，什么都不产生（keep 或干脆不写）。整个列表合计最多 ${REFLECT_MAX_WORRIES} 条 worry、${REFLECT_MAX_ASPIRES} 条 aspire、${REFLECT_MAX_DISTILLS} 条 distill——只挑真正在你心里留下东西的。回看的价值在于：几段经历放在一起，会显出单独看时看不见的模式。
 - "worry" — 回头看这段（或这几段）经历，你产生了担忧或没想通的事。附 reflection（担忧内容，第一人称，50字以内），会成为阁楼新条目
 - "aspire" — 从这段经历里长出了一个新期盼。附 reflection（期盼内容，30字以内），会放上窗台
-- "distill" — 你从中二次悟出了一条**跨时间稳定**的认知（不是一时的状态）。附 reflection（认知内容，50字以内）和 plate_room（归入哪块门牌：user_room=关于${userLabel}的事实 / self_room=关于我自己 / bedroom=我们之间的质地 / study=技能领域）
+- "distill" — 你从中二次悟出了一条**跨时间稳定**的认知（不是一时的状态）。附 reflection（认知内容，50字以内）和 plate_room（归入哪块门牌：user_room=${userLabel}的**角色卡级**事实（家庭/重要他人/重大人生节点，日常状态不算） / self_room=关于我自己 / bedroom=我们之间的质地 / study=技能领域）
 - "keep" — 就只是经历（绝大多数情况）
 ` : ''}
 如果是 resolve/deepen/internalize，请附上 reflection（你的内心独白，用第一人称"我"来写，50字以内）。
@@ -806,6 +870,8 @@ export async function runCognitiveDigestion(
     manualTrigger: boolean = false,
     userName?: string,
     embeddingConfig?: EmbeddingConfig,
+    /** 阶段回调：LLM 调用链较长（审视→回填→整理），让前端能实时告诉用户别走开 */
+    onProgress?: (stage: string) => void,
 ): Promise<DigestResult | null> {
     const trigger: 'auto' | 'manual' = manualTrigger ? 'manual' : 'auto';
     // 收集材料
@@ -820,15 +886,16 @@ export async function runCognitiveDigestion(
         material.recentEpisodes.length === 0) {
         if (embeddingConfig) await vectorizeOrphanedNodes(charId, embeddingConfig);
         const emptyResult: DigestResult = { resolved: [], deepened: [], faded: [], fulfilled: [], disappointed: [], internalized: [], synthesizedUser: [], selfInsights: [], selfConfused: [], worries: [], aspirations: [], distilled: [] };
-        // 门牌整理不受消化门槛限制：卧室节点从不进消化材料池，但「我们之间」需要它们
-        let plateUpdated: PlateRoom[] = [];
-        try {
-            const { consolidateAllPlates } = await import('./roomPlates');
-            plateUpdated = (await consolidateAllPlates(charId, charName, userName, llmConfig, undefined, getLastDigestTs(charId))).updated;
-        } catch (e: any) {
-            console.warn(`🚪 [Digest] 门牌整理失败（不影响消化结果）: ${e?.message || e}`);
-        }
+        // 早退分支不跑门牌整理：回看窗口（客厅+卧室）都空 = 上次消化以来门牌房间
+        // 没有任何新节点，整理只会让 LLM 对着旧材料重排——纯烧钱。只做回填续传
+        // （它有自己的完成标记/进度护栏，欠账没还清时才会真正跑）。
+        const plateUpdated: PlateRoom[] = await maybeBootstrapPlates(charId, charName, userName, llmConfig, onProgress);
+        emptyResult.plateUpdated = plateUpdated;
         await saveDigestReport(charId, trigger, userName, null, emptyResult, {}, plateUpdated);
+        // ⚠️ 计数器必须归零：此前早退分支漏掉 resetDigestRounds，轮数卡在 ≥50，
+        // 之后**每一轮聊天**都re触发自动消化——用户看到"每聊一句就弹门牌整理浮窗"
+        // 的根因就是它（早退分支挂上门牌整理后，这个老 bug 从隐性变成每轮可见+烧钱）。
+        resetDigestRounds(charId);
         markDigested(charId);
         return emptyResult;
     }
@@ -836,6 +903,7 @@ export async function runCognitiveDigestion(
     console.log(`🧠 [Digest] Starting cognitive digestion for ${charName}: ${material.atticNodes.length} attic, ${material.anticipations.length} anticipations, ${material.studyNodes.length} study, ${material.userRoomNodes.length} user, ${material.selfRoomNodes.length} self, ${material.recentEpisodes.length} episodes(回看)`);
 
     // LLM 统一消化
+    onProgress?.('正在审视记忆…');
     const actions = await callDigestLLM(charName, charPersona, material, llmConfig, userName);
 
     // 执行动作：状态机改现有节点；概括类产出汇集为门牌蒸馏候选
@@ -845,18 +913,22 @@ export async function runCognitiveDigestion(
     if (embeddingConfig) await vectorizeOrphanedNodes(charId, embeddingConfig);
 
     // 门牌全量整理：消化是"独处反思"，正是把情景沉淀为语义的时机。
+    // 老用户：历史欠账没还清时先续传回填，再做常规整理。
     // 本次消化提炼的概括（plateSubmissions）作为高优先级原料一并送入。
-    let plateUpdated: PlateRoom[] = [];
+    let plateUpdated: PlateRoom[] = await maybeBootstrapPlates(charId, charName, userName, llmConfig, onProgress);
     try {
+        onProgress?.('正在整理门牌…');
         const { consolidateAllPlates } = await import('./roomPlates');
         // sinceTs = 上次消化时间：门牌原料以"这段时间的新增"优先，老节点只留少量高分锚点
-        plateUpdated = (await consolidateAllPlates(charId, charName, userName, llmConfig, plateSubmissions, getLastDigestTs(charId))).updated;
+        const consolidated = (await consolidateAllPlates(charId, charName, userName, llmConfig, plateSubmissions, getLastDigestTs(charId))).updated;
+        for (const r of consolidated) if (!plateUpdated.includes(r)) plateUpdated.push(r);
         if (plateUpdated.length > 0) {
             console.log(`🚪 [Digest] 门牌整理完成：${plateUpdated.join(', ')}`);
         }
     } catch (e: any) {
         console.warn(`🚪 [Digest] 门牌整理失败（不影响消化结果）: ${e?.message || e}`);
     }
+    result.plateUpdated = plateUpdated;
 
     // 消化日志：这次到底消化了什么，可在记忆宫殿 App 回看
     await saveDigestReport(charId, trigger, userName, material, result, plateSubmissions, plateUpdated);

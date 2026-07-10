@@ -13,6 +13,7 @@ import {
     CHANGELOG_2026_06_14,
     CHANGELOG_2026_06_21,
     CHANGELOG_2026_06_26,
+    CHANGELOG_2026_07_10,
 } from '../components/UpdateNotificationEvent';
 
 const FAQ_DATA = [
@@ -98,6 +99,14 @@ interface ChangelogEntry {
 }
 
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+    {
+        id: CHANGELOG_2026_07_10,
+        title: '2026 年 7 月 10 日 · 生活统计',
+        subtitle: '档案「生活统计」四模块 + 角色注入代记 · 彼方全服写诗 · 捏人换画风 + PSD 批量导入 + 手办区 · 神经链接角色分组 · 小屋装修大升级 + 家园「凌晨」段 · 记忆宫殿门牌（测试中）· 专属提示铃声 · 壁纸/小屋图改存 Blob · 一大批 iOS 适配与散修',
+        date: '2026-07-10',
+        src: 'changelogs/2026-7-10.html',
+        accent: 'from-rose-100 to-violet-100 border-rose-200',
+    },
     {
         id: CHANGELOG_2026_06_26,
         title: '2026 年 6 月 26 日 · 梦境盲盒',

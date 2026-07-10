@@ -338,6 +338,89 @@ const SullyPayMark: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
+// ─── 生活记录代记卡（角色 [[LIFE:...]] 落库后插入；用户可确认 / 否决）───
+const LIFE_CARD_STYLE: Record<string, { icon: string; ring: string; bg: string; label: string }> = {
+    period: { icon: '🌙', ring: '#fda4af', bg: 'linear-gradient(135deg,#fff1f2 0%,#ffe4e6 100%)', label: '生理期' },
+    med: { icon: '💊', ring: '#7dd3fc', bg: 'linear-gradient(135deg,#f0f9ff 0%,#e0f2fe 100%)', label: '药盒' },
+    expense: { icon: '🧾', ring: '#fcd34d', bg: 'linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%)', label: '记账' },
+    exercise: { icon: '🏃', ring: '#6ee7b7', bg: 'linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%)', label: '锻炼' },
+};
+
+const LifeRecordCard: React.FC<{
+    m: Message;
+    charName: string;
+    commonLayout: (content: React.ReactNode) => JSX.Element;
+    selectionMode: boolean;
+    onResolveLifeRecord?: (m: Message, action: 'confirmed' | 'rejected') => void;
+}> = ({ m, charName, commonLayout, selectionMode, onResolveLifeRecord }) => {
+    const meta = m.metadata || {};
+    const style = LIFE_CARD_STYLE[meta.module as string] || LIFE_CARD_STYLE.exercise;
+    const summary: string = meta.summary || '生活记录';
+    const isDuplicate: boolean = !!meta.duplicate;
+    const reviewStatus: 'active' | 'confirmed' | 'rejected' = meta.reviewStatus || 'active';
+    const canResolve = !isDuplicate && reviewStatus === 'active' && !!onResolveLifeRecord && !selectionMode;
+    const dateLabel = (() => {
+        const d = (meta.dateStr || '').split('-');
+        return d.length === 3 ? `${parseInt(d[1], 10)}月${parseInt(d[2], 10)}日` : '';
+    })();
+
+    return commonLayout(
+        <div className="w-64 rounded-2xl overflow-hidden shadow-sm border border-white/70" style={{ background: style.bg }}>
+            <div className="px-3.5 pt-3 pb-2.5">
+                <div className="flex items-center gap-2.5">
+                    <div className="shrink-0 w-9 h-9 rounded-full bg-white/80 flex items-center justify-center text-lg shadow-sm"
+                        style={{ boxShadow: `0 0 0 2px ${style.ring}55` }}>
+                        {style.icon}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className={`text-xs font-bold text-slate-700 truncate ${reviewStatus === 'rejected' ? 'line-through opacity-50' : ''}`}>
+                            {summary}
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                            {style.label}{dateLabel ? ` · ${dateLabel}` : ''} · {meta.recordedByName || charName} 代记
+                        </div>
+                    </div>
+                </div>
+
+                {isDuplicate ? (
+                    <div className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-500 bg-white/60 rounded-xl px-2.5 py-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeWidth={2.5} stroke="currentColor" className="w-3 h-3 text-emerald-500 shrink-0"><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                        <span>此前已由「{meta.duplicateBy || '其他角色'}」记录，无需重复</span>
+                    </div>
+                ) : reviewStatus === 'confirmed' ? (
+                    <div className="mt-2 flex items-center gap-1.5 text-[10px] text-emerald-600 font-semibold px-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeWidth={3} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                        已确认
+                    </div>
+                ) : reviewStatus === 'rejected' ? (
+                    <div className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-400 font-semibold px-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeWidth={2.5} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                        已否决（记录已撤销，TA 下次会知道弄错了）
+                    </div>
+                ) : canResolve ? (
+                    <div className="mt-2.5 flex gap-2">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onResolveLifeRecord?.(m, 'confirmed'); }}
+                            className="flex-1 py-1.5 rounded-xl bg-white/85 text-emerald-600 text-[11px] font-bold shadow-sm active:scale-95 transition-transform"
+                        >
+                            ✓ 确认
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onResolveLifeRecord?.(m, 'rejected'); }}
+                            className="flex-1 py-1.5 rounded-xl bg-white/60 text-slate-500 text-[11px] font-bold shadow-sm active:scale-95 transition-transform"
+                        >
+                            ✗ 否决
+                        </button>
+                    </div>
+                ) : null}
+            </div>
+            <div className="px-3.5 py-1.5 bg-white/40 border-t border-white/60 text-[9px] text-slate-400">
+                📋 生活记录
+            </div>
+        </div>
+    );
+};
+
 const TransferCard: React.FC<{
     m: Message;
     isUser: boolean;
@@ -852,6 +935,8 @@ interface MessageItemProps {
     onLuckinCandidate?: (item: import('./LuckinCard').LuckinCartItem) => void;
     /** 用户点「收到的转账」卡 → 接收 / 退回 */
     onResolveTransfer?: (m: Message, action: 'accepted' | 'returned') => void;
+    /** 用户点「生活记录」卡 → 确认 / 否决（角色代记的记录） */
+    onResolveLifeRecord?: (m: Message, action: 'confirmed' | 'rejected') => void;
     /** 思考链卡片视觉与交互 */
     thinkingChainOptions?: {
         styleId?: ThinkingChainStyleId;
@@ -895,6 +980,7 @@ const MessageItem = React.memo(({
     onLuckinSendCart,
     onLuckinCandidate,
     onResolveTransfer,
+    onResolveLifeRecord,
     thinkingChainOptions,
 }: MessageItemProps) => {
     const isUser = m.role === 'user';
@@ -2083,6 +2169,34 @@ const MessageItem = React.memo(({
         return commonLayout(card);
     }
 
+    if (m.type === 'room_card') {
+        // 小屋「生活动态」轻量卡片：情绪评估顺风车偶尔捎带的一句小变化（utils/roomAmbient.ts）。
+        // content 进上下文，角色自然记得自己干过啥——不额外建 feed，卡片即记录。
+        const md: any = m.metadata || {};
+        const timeStr = new Date(m.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        const card = (
+            <div className="w-56">
+                <div
+                    className="relative rounded-2xl overflow-hidden border border-amber-200/70 shadow-[0_4px_14px_rgba(200,160,90,0.18)]"
+                    style={{ background: 'linear-gradient(160deg,#fffcf5 0%,#fdf6e8 60%,#faf0dc 100%)' }}
+                >
+                    <div className="relative px-3 pt-2 pb-1.5 flex items-center gap-2 border-b border-amber-200/50">
+                        <span className="text-sm leading-none">{md.emoji || '🏠'}</span>
+                        <span className="flex-1 text-[9px] tracking-[0.25em] text-amber-500/90 font-bold uppercase">小屋 · 生活动态</span>
+                        <span className="text-[9px] text-amber-400/70">{timeStr}</span>
+                    </div>
+                    <div className="relative px-3 py-2">
+                        <p className="text-[12px] leading-[1.6] text-[#6b5636]">
+                            <span className="font-bold text-amber-600">{charName || 'Ta'}</span>
+                            {md.text || String(m.content || '').replace(/^\[小屋动态\]\s*/, '')}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+        return commonLayout(card);
+    }
+
     if (m.type === 'world_card') {
         const md: any = m.metadata || {};
         const timeStr = new Date(m.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -2564,6 +2678,10 @@ const MessageItem = React.memo(({
         return <TransferCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveTransfer={onResolveTransfer} />;
     }
 
+    if (m.type === 'life_card') {
+        return <LifeRecordCard m={m} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveLifeRecord={onResolveLifeRecord} />;
+    }
+
     if (m.type === 'emoji') {
         return commonLayout(
             m.content ? (
@@ -3026,6 +3144,12 @@ const MessageItem = React.memo(({
 }, (prev, next) => {
     return prev.msg.id === next.msg.id &&
            prev.msg.content === next.msg.content &&
+           // 可交互卡片的状态活在 metadata 里（生活记录卡确认/否决、转账卡收退款）。
+           // 这里不深比整个 metadata（可能含大对象），只盯这几个会改变渲染的状态位——
+           // 否则用户点了「确认」，DB 已更新、消息已重载，卡片却因 memo 判等而纹丝不动。
+           prev.msg.metadata?.reviewStatus === next.msg.metadata?.reviewStatus &&
+           prev.msg.metadata?.status === next.msg.metadata?.status &&
+           prev.msg.metadata?.receipt === next.msg.metadata?.receipt &&
            prev.isFirstInGroup === next.isFirstInGroup &&
            prev.isLastInGroup === next.isLastInGroup &&
            prev.activeTheme === next.activeTheme &&

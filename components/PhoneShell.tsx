@@ -129,7 +129,6 @@ setAppPayloadWarmer((id: AppID) => { const c = APP_BY_ID[id]; if (c) warmLazy(c)
 
 import { Like520Controller, shouldShowLike520Popup } from './Like520Event';
 import { UpdateNotificationController, shouldShowUpdateNotification } from './UpdateNotificationEvent';
-import { AuthorLetterController, shouldShowAuthorLetter } from './AuthorLetterEvent';
 import { WorkerUpdateReminderController, shouldShowWorkerUpdateReminder } from './WorkerUpdateReminderEvent';
 import { formatBytes } from '../utils/format';
 import { AppID } from '../types';
@@ -554,21 +553,8 @@ const PhoneShell: React.FC = () => {
     openApp(AppID.Settings);
   };
 
-  // 「致用户的一封信」(2026-06) — 作者糯米鸡的一次性公告，优先级排在免责声明之后、
-  // 其它弹窗之前。未读过的用户强制接到一次。
-  const [showAuthorLetter, setShowAuthorLetter] = useState(() => {
-    try {
-      return !!(localStorage.getItem(DISCLAIMER_KEY)) && shouldShowAuthorLetter();
-    } catch { return false; }
-  });
-
-  useEffect(() => {
-    if (!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter) {
-      if (shouldShowAuthorLetter()) {
-        setShowAuthorLetter(true);
-      }
-    }
-  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter]);
+  // 「致用户的一封信」已下线：常量置 false，保留变量让下面弹窗链的条件继续成立（恒真/恒不显示）。
+  const showAuthorLetter = false;
 
   // Version update popup (2026-04) — forced once per user who hasn't seen it yet
   const [showUpdateNotification, setShowUpdateNotification] = useState(() => {
@@ -920,11 +906,6 @@ const PhoneShell: React.FC = () => {
            onLater={() => { setImportRecoveryDismissed(true); setImportRecoveryMarker(null); }}
            onReimport={handleReimportFromRecovery}
          />
-       )}
-
-       {/* 「致用户的一封信」(2026-06) — 作者公告，强制一次 */}
-       {!showDisclaimer && !showImportRecoveryPrompt && showAuthorLetter && (
-         <AuthorLetterController onClose={() => setShowAuthorLetter(false)} />
        )}
 
        {/* Version update popup (2026-04) — forced until acknowledged */}
