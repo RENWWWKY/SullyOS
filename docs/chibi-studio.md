@@ -10,6 +10,8 @@
 | `vr` | 彼方 VRWorldApp | `char.vrState.chibi.img`（scale/offsetY/flip 保留不动） | dataURL |
 | `like520` | 特别时光 520 活动 | 已通关：`char.specialMomentRecords['like520_2026'].customData.charChibi`；未通关：`char.chibiStudio.like520.img` 兜底 | dataURL |
 
+> ⚠️ `char.sprites` 是混装袋：`chibi`（blobref 令牌）与见面情绪立绘同居一个对象。任何「从 sprites 里随便挑一张当立绘」的兜底都必须跳过 `chibi` 键和 blobref 值（不能直接当 `<img src>`），统一走 `utils/dateSprites.ts` 的 `pickDateFallbackSprite`——否则会复现「没传见面立绘的角色，捏完 Q 版后见面模式裂图」。
+
 捏人器完整导出 state（选件 + 换色 + 翻转 + 眼型…）按槽位存 `char.chibiStudio.{room,vr,like520}.state`（`types.ts` 的 `ChibiStudioData`），再编辑时整套还原。`chibiStudio` 属运行时本地状态，已加入 `CARD_STRIPPED_FIELDS`（角色卡导出/导入双向剥离）。
 
 ## 关键文件
