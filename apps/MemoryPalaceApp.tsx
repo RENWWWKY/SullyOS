@@ -10,6 +10,7 @@ import {
     wipeAllMemoryPalace,
     exportMemoryPalace, importMemoryPalace, isMemoryPalaceExportFile,
     DigestReportDB, PLATE_TITLES,
+    bootstrapPlatesFromHistory, markPlateBootstrapDone,
 } from '../utils/memoryPalace';
 import type { Anticipation, MigrationProgress, DigestResult, MemoryLink, EventBox, DigestReport } from '../utils/memoryPalace';
 import { confirmExportSafety } from '../utils/exportGuard';
@@ -490,6 +491,33 @@ export default function MemoryPalaceApp() {
     const [digestReports, setDigestReports] = useState<DigestReport[] | null>(null);
     const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
     useEffect(() => { setDigestReports(null); setExpandedReportId(null); }, [char?.id]);
+    // 门牌历史回填（老用户把积压立牌）
+    const [bootstrapping, setBootstrapping] = useState(false);
+    const [bootstrapStatus, setBootstrapStatus] = useState<string | null>(null);
+
+    const handleBootstrapPlates = async () => {
+        if (!char || bootstrapping) return;
+        const lightApi = memoryPalaceConfig.lightLLM;
+        if (!lightApi?.baseUrl) {
+            setBootstrapStatus('[err]请先在设置中配置副 API');
+            return;
+        }
+        setBootstrapping(true);
+        setBootstrapStatus(null);
+        try {
+            const result = await bootstrapPlatesFromHistory(char.id, char.name, userProfile?.name, lightApi, {
+                onProgress: (done, total) => setBootstrapStatus(`正在整理第 ${done}/${total} 批历史记忆…`),
+            });
+            markPlateBootstrapDone(char.id);
+            setBootstrapStatus(result.totalLines === 0
+                ? '记忆宫殿里还没有可立牌的历史'
+                : `[ok]扫过 ${result.totalLines} 条历史（${result.batches} 批），更新 ${result.updated.length} 块门牌——去神经链接「门牌」页看看`);
+        } catch (err: any) {
+            setBootstrapStatus(`[err]回填失败：${err?.message || err}`);
+        } finally {
+            setBootstrapping(false);
+        }
+    };
 
 
     // 一键清空
@@ -3794,6 +3822,27 @@ create table if not exists memory_vectors (
                         }}
                     >
                         {digesting ? `${char.name}正在静静地回想…` : '手动触发消化'}
+                    </button>
+
+                    {/* 门牌历史回填：老用户的积压不该白攒——分批扫全部历史立牌 */}
+                    {bootstrapStatus && (
+                        <div style={{ fontSize: 12, marginTop: 8, color: bootstrapStatus.startsWith('[ok]') ? '#7c3aed' : bootstrapStatus.startsWith('[err]') ? '#dc2626' : '#6b7280' }}>
+                            <StatusMessage msg={bootstrapStatus} />
+                        </div>
+                    )}
+                    <button
+                        onClick={handleBootstrapPlates}
+                        disabled={bootstrapping}
+                        style={{
+                            width: '100%', marginTop: 8, padding: '8px 0',
+                            borderRadius: 10, border: '1px solid #ddd6fe',
+                            fontSize: 12, fontWeight: 600,
+                            color: '#7c3aed', background: 'white',
+                            cursor: bootstrapping ? 'not-allowed' : 'pointer',
+                            opacity: bootstrapping ? 0.6 : 1,
+                        }}
+                    >
+                        {bootstrapping ? '正在回填…' : '从历史记忆重建门牌（老用户补课）'}
                     </button>
 
                     {/* 消化日志：每次消化到底审视了什么、改了什么、往门牌提交了什么 */}

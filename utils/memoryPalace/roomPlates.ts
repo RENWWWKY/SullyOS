@@ -458,6 +458,114 @@ export async function consolidateAllPlates(
     return consolidatePlates(charId, charName, userName || '用户', materials, llmConfig, extraMaterial);
 }
 
+// ─── 历史回填（Bootstrap — 老用户的门牌不能从零开始） ──
+
+/** 回填每批每房间的行数 & 单角色回填的行数上限（超出取最新的，旧尾丢弃并 log） */
+const BOOTSTRAP_LINES_PER_BATCH = 12;
+export const BOOTSTRAP_MAX_LINES_PER_ROOM = 240;
+
+/**
+ * 收集某房间的全部历史原料，**时间正序**（旧→新）：
+ * 分批喂给整理 LLM 时，后面的批次带着更新的事实，合并语义自然完成 supersede——
+ * 和知识真实积累的顺序一致。盒子 summary 按自身 createdAt 参与排序。
+ * 超过上限时丢最旧的（保留最新 N 条），返回丢弃数供 log。
+ */
+export function collectBootstrapLines(
+    nodes: MemoryNode[],
+    room: PlateRoom,
+    maxLines: number = BOOTSTRAP_MAX_LINES_PER_ROOM,
+): { lines: string[]; dropped: number } {
+    const candidates = nodes
+        .filter(n => n.room === room && !n.archived)
+        .sort((a, b) => a.createdAt - b.createdAt);
+    const dropped = Math.max(0, candidates.length - maxLines);
+    const kept = dropped > 0 ? candidates.slice(dropped) : candidates;
+    return {
+        lines: kept.map(n => n.content.replace(/\s+/g, ' ').trim().slice(0, MATERIAL_LINE_MAX_CHARS)),
+        dropped,
+    };
+}
+
+/**
+ * 从历史记忆回填门牌：把四个门牌房间的全部积压分批过整理 LLM。
+ *
+ * 触发方式：
+ *   - 自动：消化尾声发现"门牌全空但历史可观"时跑一次（批数受 maxBatches 限制，
+ *     控制后台成本；没扫完的部分等手动触发补完）
+ *   - 手动：记忆宫殿 App「从历史记忆重建门牌」按钮（全量批次 + 进度回调）
+ *
+ * 幂等性：合并语义天然幂等——重复回填同样的历史，条目被去重/合并而非翻倍。
+ */
+export async function bootstrapPlatesFromHistory(
+    charId: string,
+    charName: string,
+    userName: string | undefined,
+    llmConfig: LightLLMConfig,
+    options: {
+        maxBatches?: number;
+        /** 历史总行数低于此值直接跳过（常规整理足以覆盖小历史，不值得跑回填） */
+        minLines?: number;
+        onProgress?: (done: number, total: number) => void;
+    } = {},
+): Promise<{ updated: PlateRoom[]; batches: number; totalLines: number }> {
+    const allNodes = await MemoryNodeDB.getByCharId(charId);
+    const byRoom = new Map<PlateRoom, string[]>();
+    let totalLines = 0;
+    for (const room of PLATE_ROOMS) {
+        const { lines, dropped } = collectBootstrapLines(allNodes, room);
+        if (dropped > 0) {
+            console.warn(`🚪 [Bootstrap] 「${PLATE_TITLES[room]}」历史超上限，丢弃最旧 ${dropped} 条（保留最新 ${BOOTSTRAP_MAX_LINES_PER_ROOM}）`);
+        }
+        byRoom.set(room, lines);
+        totalLines += lines.length;
+    }
+    if (totalLines === 0 || totalLines < (options.minLines ?? 0)) {
+        return { updated: [], batches: 0, totalLines };
+    }
+
+    const neededBatches = Math.max(
+        ...PLATE_ROOMS.map(r => Math.ceil((byRoom.get(r)!.length) / BOOTSTRAP_LINES_PER_BATCH)),
+    );
+    const batches = Math.min(neededBatches, options.maxBatches ?? neededBatches);
+    if (batches < neededBatches) {
+        console.log(`🚪 [Bootstrap] 批数受限 ${batches}/${neededBatches}——先吃最早的历史，剩余可手动触发补完`);
+    }
+
+    const updatedSet = new Set<PlateRoom>();
+    for (let i = 0; i < batches; i++) {
+        const materials: PlateMaterial[] = PLATE_ROOMS.map(room => ({
+            room,
+            lines: byRoom.get(room)!.slice(i * BOOTSTRAP_LINES_PER_BATCH, (i + 1) * BOOTSTRAP_LINES_PER_BATCH),
+        }));
+        if (materials.every(m => m.lines.length === 0)) break;
+        try {
+            const { updated } = await consolidatePlates(charId, charName, userName || '用户', materials, llmConfig);
+            updated.forEach(r => updatedSet.add(r));
+        } catch (e: any) {
+            console.warn(`🚪 [Bootstrap] 第 ${i + 1}/${batches} 批整理失败（继续下一批）: ${e?.message || e}`);
+        }
+        options.onProgress?.(i + 1, batches);
+    }
+    console.log(`🚪 [Bootstrap] 回填完成：${batches} 批 / ${totalLines} 条历史 → 更新 ${[...updatedSet].length} 块门牌`);
+    return { updated: [...updatedSet], batches, totalLines };
+}
+
+/** 门牌是否全空（自动回填的触发判据之一） */
+export async function arePlatesEmpty(charId: string): Promise<boolean> {
+    const plates = await RoomPlateDB.getByCharId(charId);
+    return plates.every(p => p.entries.length === 0);
+}
+
+// 回填完成标记：防"LLM 判定无可立牌"时每次消化都重扫历史的成本循环。
+// 自动路径查/设；手动全量回填完成后也设（并可无视它强制重跑）。
+const BOOTSTRAP_FLAG_KEY = (charId: string) => `mp_plateBootstrapped_${charId}`;
+export function isPlateBootstrapDone(charId: string): boolean {
+    try { return !!localStorage.getItem(BOOTSTRAP_FLAG_KEY(charId)); } catch { return false; }
+}
+export function markPlateBootstrapDone(charId: string): void {
+    try { localStorage.setItem(BOOTSTRAP_FLAG_KEY(charId), String(Date.now())); } catch {}
+}
+
 // ─── 注入：格式化为常驻 System Prompt 段落 ───────────
 
 /**

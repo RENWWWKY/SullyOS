@@ -115,6 +115,31 @@ export interface DigestResult {
 const AUTO_DIGEST_ROUNDS = 50;
 const ROUND_KEY = (charId: string) => `mp_digestRounds_${charId}`;
 const LAST_DIGEST_KEY = (charId: string) => `mp_lastDigest_${charId}`;
+/** 老用户自动回填：门牌全空 + 历史可观 + 没跑过 → 消化尾声先把积压立牌 */
+async function maybeBootstrapPlates(
+    charId: string,
+    charName: string,
+    userName: string | undefined,
+    llmConfig: LightLLMConfig,
+): Promise<PlateRoom[]> {
+    try {
+        const { arePlatesEmpty, bootstrapPlatesFromHistory, isPlateBootstrapDone, markPlateBootstrapDone } = await import('./roomPlates');
+        if (isPlateBootstrapDone(charId)) return [];
+        if (!(await arePlatesEmpty(charId))) return [];
+        // 批数限 10（后台成本护栏，约 120 条/房间）；历史 < 30 条不值得回填，常规整理够用
+        const boot = await bootstrapPlatesFromHistory(charId, charName, userName, llmConfig, {
+            maxBatches: 10, minLines: 30,
+        });
+        if (boot.batches > 0) {
+            markPlateBootstrapDone(charId);
+            console.log(`🚪 [Digest] 老用户门牌自动回填：${boot.batches} 批 / ${boot.totalLines} 条历史`);
+        }
+        return boot.updated;
+    } catch (e: any) {
+        console.warn(`🚪 [Digest] 门牌自动回填失败（不影响消化）: ${e?.message || e}`);
+        return [];
+    }
+}
 
 /** 获取当前已累积的轮数 */
 export function getDigestRoundCount(charId: string): number {
@@ -844,10 +869,11 @@ export async function runCognitiveDigestion(
         if (embeddingConfig) await vectorizeOrphanedNodes(charId, embeddingConfig);
         const emptyResult: DigestResult = { resolved: [], deepened: [], faded: [], fulfilled: [], disappointed: [], internalized: [], synthesizedUser: [], selfInsights: [], selfConfused: [], worries: [], aspirations: [], distilled: [] };
         // 门牌整理不受消化门槛限制：卧室节点从不进消化材料池，但「我们之间」需要它们
-        let plateUpdated: PlateRoom[] = [];
+        let plateUpdated: PlateRoom[] = await maybeBootstrapPlates(charId, charName, userName, llmConfig);
         try {
             const { consolidateAllPlates } = await import('./roomPlates');
-            plateUpdated = (await consolidateAllPlates(charId, charName, userName, llmConfig, undefined, getLastDigestTs(charId))).updated;
+            const consolidated = (await consolidateAllPlates(charId, charName, userName, llmConfig, undefined, getLastDigestTs(charId))).updated;
+            for (const r of consolidated) if (!plateUpdated.includes(r)) plateUpdated.push(r);
         } catch (e: any) {
             console.warn(`🚪 [Digest] 门牌整理失败（不影响消化结果）: ${e?.message || e}`);
         }
@@ -868,12 +894,14 @@ export async function runCognitiveDigestion(
     if (embeddingConfig) await vectorizeOrphanedNodes(charId, embeddingConfig);
 
     // 门牌全量整理：消化是"独处反思"，正是把情景沉淀为语义的时机。
+    // 老用户首次：先自动回填历史（门牌全空+历史可观时），再做常规整理。
     // 本次消化提炼的概括（plateSubmissions）作为高优先级原料一并送入。
-    let plateUpdated: PlateRoom[] = [];
+    let plateUpdated: PlateRoom[] = await maybeBootstrapPlates(charId, charName, userName, llmConfig);
     try {
         const { consolidateAllPlates } = await import('./roomPlates');
         // sinceTs = 上次消化时间：门牌原料以"这段时间的新增"优先，老节点只留少量高分锚点
-        plateUpdated = (await consolidateAllPlates(charId, charName, userName, llmConfig, plateSubmissions, getLastDigestTs(charId))).updated;
+        const consolidated = (await consolidateAllPlates(charId, charName, userName, llmConfig, plateSubmissions, getLastDigestTs(charId))).updated;
+        for (const r of consolidated) if (!plateUpdated.includes(r)) plateUpdated.push(r);
         if (plateUpdated.length > 0) {
             console.log(`🚪 [Digest] 门牌整理完成：${plateUpdated.join(', ')}`);
         }
