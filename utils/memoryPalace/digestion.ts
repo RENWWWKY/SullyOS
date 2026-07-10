@@ -886,18 +886,16 @@ export async function runCognitiveDigestion(
         material.recentEpisodes.length === 0) {
         if (embeddingConfig) await vectorizeOrphanedNodes(charId, embeddingConfig);
         const emptyResult: DigestResult = { resolved: [], deepened: [], faded: [], fulfilled: [], disappointed: [], internalized: [], synthesizedUser: [], selfInsights: [], selfConfused: [], worries: [], aspirations: [], distilled: [] };
-        // 门牌整理不受消化门槛限制：卧室节点从不进消化材料池，但「我们之间」需要它们
-        let plateUpdated: PlateRoom[] = await maybeBootstrapPlates(charId, charName, userName, llmConfig, onProgress);
-        try {
-            onProgress?.('正在整理门牌…');
-            const { consolidateAllPlates } = await import('./roomPlates');
-            const consolidated = (await consolidateAllPlates(charId, charName, userName, llmConfig, undefined, getLastDigestTs(charId))).updated;
-            for (const r of consolidated) if (!plateUpdated.includes(r)) plateUpdated.push(r);
-        } catch (e: any) {
-            console.warn(`🚪 [Digest] 门牌整理失败（不影响消化结果）: ${e?.message || e}`);
-        }
+        // 早退分支不跑门牌整理：回看窗口（客厅+卧室）都空 = 上次消化以来门牌房间
+        // 没有任何新节点，整理只会让 LLM 对着旧材料重排——纯烧钱。只做回填续传
+        // （它有自己的完成标记/进度护栏，欠账没还清时才会真正跑）。
+        const plateUpdated: PlateRoom[] = await maybeBootstrapPlates(charId, charName, userName, llmConfig, onProgress);
         emptyResult.plateUpdated = plateUpdated;
         await saveDigestReport(charId, trigger, userName, null, emptyResult, {}, plateUpdated);
+        // ⚠️ 计数器必须归零：此前早退分支漏掉 resetDigestRounds，轮数卡在 ≥50，
+        // 之后**每一轮聊天**都re触发自动消化——用户看到"每聊一句就弹门牌整理浮窗"
+        // 的根因就是它（早退分支挂上门牌整理后，这个老 bug 从隐性变成每轮可见+烧钱）。
+        resetDigestRounds(charId);
         markDigested(charId);
         return emptyResult;
     }
