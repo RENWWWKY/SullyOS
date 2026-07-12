@@ -15,6 +15,7 @@ import { exportPostOfficeLocal, importPostOfficeLocal } from './vrWorld/postOffi
 import { exportSignalLocal, importSignalLocal } from './vrWorld/signal';
 import { exportLuckinLocal, importLuckinLocal } from './luckinMcpClient';
 import { exportMcdLocal, importMcdLocal } from './mcdMcpClient';
+import { exportMcpLocal, importMcpLocal } from './mcpClient';
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 import { exportDesktopSkinLocal, importDesktopSkinLocal } from './desktopSkinBackup';
 
@@ -869,6 +870,28 @@ export const DB = {
               cursorReq.onerror = () => reject(cursorReq.error);
           };
           countReq.onerror = () => reject(countReq.error);
+      });
+  },
+
+  /** 群聊历史分页：只取 beforeId 之前最近的 limit 条，避免“查看更多”把全部旧消息留在内存和 DOM。 */
+  getGroupMessagesBefore: async (groupId: string, beforeId: number, limit: number): Promise<Message[]> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_MESSAGES, 'readonly');
+          const index = transaction.objectStore(STORE_MESSAGES).index('groupId');
+          const collected: Message[] = [];
+          const request = index.openCursor(IDBKeyRange.only(groupId), 'prev');
+          request.onsuccess = () => {
+              const cursor = request.result;
+              if (!cursor || collected.length >= limit) {
+                  resolve(collected.reverse());
+                  return;
+              }
+              const message = cursor.value as Message;
+              if (message.id < beforeId) collected.push(message);
+              cursor.continue();
+          };
+          request.onerror = () => reject(request.error);
       });
   },
 
@@ -2639,6 +2662,7 @@ export const DB = {
           worldHomeLocal: exportWorldHomeLocal(), // 家园本机配置：全局 API + 文风收藏（存 localStorage）
           luckinLocal: exportLuckinLocal(),       // 瑞幸 token + 启用状态（存 localStorage）
           mcdLocal: exportMcdLocal(),             // 麦当劳 token + 启用状态（存 localStorage）
+          mcpLocal: exportMcpLocal(),             // 通用 MCP 服务器配置（存 localStorage）
           desktopSkinLocal: await exportDesktopSkinLocal(), // 桌面皮肤：界面配色 + 看板 banner（看板图令牌解析为 data URL）
       };
   },
@@ -3083,6 +3107,10 @@ export const DB = {
       await runSection('麦当劳配置', (data as any).mcdLocal !== undefined, async () => {
           importMcdLocal((data as any).mcdLocal); // token + 启用状态
           (data as any).mcdLocal = undefined;
+      }, 1);
+      await runSection('MCP 服务器配置', (data as any).mcpLocal !== undefined, async () => {
+          importMcpLocal((data as any).mcpLocal); // 用户自配的 MCP 服务器列表
+          (data as any).mcpLocal = undefined;
       }, 1);
       await runSection('桌面皮肤偏好', (data as any).desktopSkinLocal !== undefined, async () => {
           await importDesktopSkinLocal((data as any).desktopSkinLocal); // 界面配色 + 看板 banner（data URL→本机 blob）

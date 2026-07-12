@@ -50,9 +50,11 @@ function summarizeGroupMsgContent(m: Message): string {
         case 'html_card': return '[HTML卡片]';
         case 'news_card': return '[新闻卡片]';
         case 'trpg_card': return `[TRPG游戏片段${meta.trpg?.gameTitle ? '：《' + meta.trpg.gameTitle + '》' : ''}]`;
+        case 'novel_card': return `[笔友会小说章节${meta.novel?.bookTitle ? '：《' + meta.novel.bookTitle + '》' : ''}]`;
         case 'world_card': return `[家园生活记录${meta.worldName ? '：' + meta.worldName : ''}]`;
         case 'sim_card': return `[一段回忆${meta.simCard?.theme ? '：' + meta.simCard.theme : ''}]`;
         case 'phone_card': return `[手机内容${meta.phoneCard?.title ? '：' + meta.phoneCard.title : ''}]`;
+        case 'group_topic_card': return `[群聊公共话题盒${meta.groupTopicBox?.title ? '：' + meta.groupTopicBox.title : ''}] ${meta.groupTopicBox?.summary || m.content || ''}`;
         default: {
             const c = typeof m.content === 'string' ? m.content : '';
             // 兜底：任何 data:/http(s) 链接都不内联，防止异常/未来新增类型漏网
@@ -226,7 +228,9 @@ export const ChatPrompts = {
                     memberGroups.map(g => DB.getGroupMessages(g.id).then(msgs => ({
                         groupName: g.name,
                         cap: g.privateContextCap ?? 80,
-                        msgs,
+                        // 已经进入公共话题盒的旧原文不再重复塞进私聊背景；成盒时送达的
+                        // group_topic_card 会沿私聊自身的历史/归档链继续被角色感知。
+                        msgs: msgs.filter(m => m.id > (g.archivedThroughMessageId || 0)),
                     })))
                 );
                 const allGroupMsgs: (Message & { groupName: string })[] = [];
@@ -1124,9 +1128,9 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                         content = `${timeStr} [系统卡片]`;
                     }
                 }
-                else if ((m.type as string) === 'trpg_card') {
-                    // TRPG 跑团片段：从游戏多选转发进来的剧情。复用 normalizeMessageContent
-                    // 把完整节选翻成文本，让角色"记得"和用户一起玩游戏时发生了什么。
+                else if ((m.type as string) === 'trpg_card' || (m.type as string) === 'novel_card') {
+                    // TRPG 跑团片段 / 笔友会小说章节：从对应 app 多选转发进来的内容。
+                    // 复用 normalizeMessageContent 翻成完整文本，让角色"记得"一起玩过/写过什么。
                     content = `${timeStr} ${normalizeMessageContent(m, char?.name || '你', userProfile?.name || '用户')}`;
                 }
                 else content = `${timeStr} ${sourceTag} ${content}`;
