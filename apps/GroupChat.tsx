@@ -13,7 +13,7 @@ import { processImage } from '../utils/file';
 import { stickerNameFromUrl } from '../utils/messageFormat';
 import { PRESET_THEMES } from '../components/chat/ChatConstants';
 import { resolveChatTheme } from '../utils/groupChat/theme';
-import { parseDirectorActions, stripSkipMarker } from '../utils/groupChat/parse';
+import { parseDirectorActions, stripSkipMarker, parseGroupTopicBox } from '../utils/groupChat/parse';
 import { GroupPacketMeta, PacketReceiptMeta, ClaimResult, claimPacket, effectivePacketStatus, makePacketMeta } from '../utils/groupChat/redpacket';
 import { messageLogText } from '../utils/groupChat/format';
 import { buildMemberTimeline, DEFAULT_MEMBER_TIMELINE_CAP } from '../utils/groupChat/timeline';
@@ -369,8 +369,7 @@ const GroupChat: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [totalMsgCount, setTotalMsgCount] = useState(0);
     const MESSAGE_PAGE_SIZE = 50;
-    const [isViewingHistory, setIsViewingHistory] = useState(false);
-    const [olderRemaining, setOlderRemaining] = useState(0);
+    const [visibleCount, setVisibleCount] = useState(MESSAGE_PAGE_SIZE);
     const [input, setInput] = useState('');
     const [isTyping, setIsTyping] = useState(false);
     /** 群公共话题盒整理状态——非空时显示顶部胶囊状态条 */
@@ -453,11 +452,10 @@ const GroupChat: React.FC = () => {
     // Initial Load
     useEffect(() => {
         if (activeGroup) {
-            setIsViewingHistory(false);
+            setVisibleCount(MESSAGE_PAGE_SIZE);
             DB.getRecentGroupMessagesWithCount(activeGroup.id, MESSAGE_PAGE_SIZE).then(({ messages: msgs, totalCount }) => {
                 setMessages(msgs);
                 setTotalMsgCount(totalCount);
-                setOlderRemaining(Math.max(0, totalCount - msgs.length));
             });
             // Fetch emojis AND categories
             Promise.all([DB.getEmojis(), DB.getEmojiCategories()]).then(([es, cats]) => {
@@ -469,10 +467,10 @@ const GroupChat: React.FC = () => {
 
     // Auto Scroll
     useLayoutEffect(() => {
-        if (scrollRef.current && !selectionMode && !isViewingHistory) {
+        if (scrollRef.current && !selectionMode) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-    }, [messages.length, activeGroup, showPanel, isTyping, selectionMode, isViewingHistory]);
+    }, [messages.length, activeGroup, showPanel, isTyping, selectionMode]);
 
     // 白框提示音：成员新发的消息成为群里最后一条时响一次（用户自己/翻旧消息不响）。
     // 逻辑对齐私聊 Chat.tsx——切群只记基线不播、回合内多气泡只响首条、基线只增不减。
@@ -498,7 +496,8 @@ const GroupChat: React.FC = () => {
         sync.maxId = sync.maxId == null ? lastId : Math.max(sync.maxId, lastId);
     }, [messages, activeGroup?.id, activeGroup?.chromeCustomCss, activeGroup?.chatSound, osTheme.chatChromeCustomCss, osTheme.chatSound]);
 
-    const displayMessages = useMemo(() => messages.slice(-MESSAGE_PAGE_SIZE), [messages]);
+    const displayMessages = useMemo(() => messages.slice(-visibleCount), [messages, visibleCount]);
+    const collapsedCount = Math.max(0, totalMsgCount - messages.length);
 
     const canReroll = useMemo(() => {
         if (isTyping || messages.length === 0) return false;
@@ -512,14 +511,17 @@ const GroupChat: React.FC = () => {
         const now = Date.now();
         const diffHours = Math.floor((now - lastMsgTimestamp) / (1000 * 60 * 60));
         const diffMins = Math.floor((now - lastMsgTimestamp) / (1000 * 60));
-        
+        const diffDays = Math.floor(diffHours / 24);
+
         const currentHour = new Date().getHours();
         const isNight = currentHour >= 23 || currentHour <= 6;
 
         if (diffMins < 10) return '聊天正在火热进行中，大家都很活跃。';
         if (diffMins < 60) return `距离上次发言过了 ${diffMins} 分钟，话题可能有点冷场。`;
         if (diffHours < 12) return `距离上次发言过了 ${diffHours} 小时。${isNight ? '现在是深夜。' : ''}`;
-        return `大家已经 ${diffHours} 小时没说话了，群里很安静。`;
+        if (diffHours < 24) return `距离上次发言过了 ${diffHours} 小时，群里安静了大半天。`;
+        // 隔天以上：明确"日子已经过去了"，别把上一条当作刚刚发生、无缝续上旧话题。
+        return `距离群里上一条消息已经过了 ${diffDays} 天（${diffHours} 小时）。这段时间是真实流逝的——各自都过了好几天的生活，之前那个话题早就不是"刚才"的事了。除非有人明确重新提起，别当无事发生、直接续上几天前那句话；更自然的是有种"好久没聊了"的重启感，或者干脆聊点新的。`;
     };
 
     // New: Calculate private chat gap
@@ -542,11 +544,9 @@ const GroupChat: React.FC = () => {
     // 之前每条气泡都 getGroupMessages 全表读，且 totalMsgCount 不更新，
     // 导致发送后"加载历史消息"按钮的计数失真（甚至消失）
     const refreshMessages = async (groupId: string) => {
-        const { messages: msgs, totalCount } = await DB.getRecentGroupMessagesWithCount(groupId, MESSAGE_PAGE_SIZE);
+        const { messages: msgs, totalCount } = await DB.getRecentGroupMessagesWithCount(groupId, visibleCount);
         setMessages(msgs);
         setTotalMsgCount(totalCount);
-        setOlderRemaining(Math.max(0, totalCount - msgs.length));
-        setIsViewingHistory(false);
         return msgs;
     };
 
@@ -759,7 +759,6 @@ const GroupChat: React.FC = () => {
     const handleSendMessage = async (content: string, type: MessageType = 'text', metadata?: any) => {
         if (!activeGroup) return;
         if (type === 'text' && !content.trim()) return;
-        setIsViewingHistory(false);
         // 借用户"发送"手势解锁音频上下文（移动端自动播放策略），稍后 AI 回复时提示音才响得了
         unlockWhiteboxAudio();
         
@@ -965,7 +964,11 @@ const GroupChat: React.FC = () => {
     const buildGroupSystemHeader = (currentMsgs: Message[], groupMembers: CharacterProfile[]) => {
         const lastMsg = currentMsgs[currentMsgs.length - 1];
         const timeGapInfo = lastMsg ? getTimeGapHint(lastMsg.timestamp) : "这是群聊的第一条消息。";
-        const currentTimeStr = `${virtualTime.hours.toString().padStart(2, '0')}:${virtualTime.minutes.toString().padStart(2, '0')}`;
+        // 带上完整日期（年月日 + 星期），只给 HH:MM 时角色感知不到"过了几天"——
+        // 这正是"很久以后还无缝续上旧话题"的一个来源。virtualTime 只有时分，日期取真实当天。
+        const nowDate = new Date();
+        const weekNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        const currentTimeStr = `${nowDate.getFullYear()}年${nowDate.getMonth() + 1}月${nowDate.getDate()}日 ${weekNames[nowDate.getDay()]} ${virtualTime.hours.toString().padStart(2, '0')}:${virtualTime.minutes.toString().padStart(2, '0')}`;
         const liveMsgs = currentMsgs.filter(m => m.id > (activeGroup?.archivedThroughMessageId || 0));
         const sharedScene = ContextBuilder.buildGroupSharedScene(groupMembers, userProfile, liveMsgs);
 
@@ -1064,22 +1067,6 @@ ${memberTimeline || '(暂无互动记录)'}
               ]
             : prompt;
 
-    const parseTopicBoxResponse = (raw: string): { title: string; summary: string } | null => {
-        const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-        try {
-            const parsed = JSON.parse(cleaned);
-            if (parsed?.summary) return { title: String(parsed.title || '一段群聊回忆'), summary: String(parsed.summary) };
-        } catch {}
-        const match = cleaned.match(/\{[\s\S]*\}/);
-        if (match) {
-            try {
-                const parsed = JSON.parse(match[0]);
-                if (parsed?.summary) return { title: String(parsed.title || '一段群聊回忆'), summary: String(parsed.summary) };
-            } catch {}
-        }
-        return null;
-    };
-
     /** 群公共话题盒：每群只调用一次总结 API，不再按开启记忆宫殿的成员分别复制。 */
     const createNextGroupTopicBox = async (force: boolean = false): Promise<boolean> => {
         if (!activeGroup || topicArchiveLockRef.current || !apiConfig.apiKey) return false;
@@ -1104,7 +1091,7 @@ ${memberTimeline || '(暂无互动记录)'}
             });
             if (!response.ok) throw new Error(`API 返回 ${response.status}`);
             const data = await safeResponseJson(response);
-            const parsed = parseTopicBoxResponse(data.choices?.[0]?.message?.content || '');
+            const parsed = parseGroupTopicBox(data.choices?.[0]?.message?.content || '');
             if (!parsed) throw new Error('总结格式无法解析');
 
             const box = makeGroupTopicBox(groupForArchive, batchPlan.messages, parsed.title, parsed.summary);
@@ -1144,7 +1131,10 @@ ${memberTimeline || '(暂无互动记录)'}
         }
     };
 
-    const runGroupTopicArchive = () => { void createNextGroupTopicBox(false); };
+    const runGroupTopicArchive = () => {
+        if ((activeGroup?.topicArchiveMode || 'auto') !== 'auto') return;
+        void createNextGroupTopicBox(false);
+    };
 
     const saveTopicBoxEdit = async (boxId: string) => {
         if (!activeGroup || !topicTitleDraft.trim() || !topicSummaryDraft.trim()) return;
@@ -1566,37 +1556,19 @@ ${memberTimeline || '(暂无互动记录)'}
 
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto p-4 no-scrollbar space-y-2 bg-[#f0f4f8]" ref={scrollRef}>
-                <div className="sticky top-0 z-20 flex flex-col items-center gap-1.5 mb-4 pointer-events-none">
-                    <div className="pointer-events-auto px-3 py-1.5 rounded-full bg-white/80 backdrop-blur text-[10px] text-slate-400 border border-white shadow-sm">
-                        界面固定渲染 50 条 · 已归档原文仍可查看，但不会重复进入 AI 上下文
+                {collapsedCount > 0 && activeGroup && (
+                    <div className="flex justify-center mb-6">
+                        <button onClick={async () => {
+                            const nextVisibleCount = visibleCount + MESSAGE_PAGE_SIZE;
+                            setVisibleCount(nextVisibleCount);
+                            const { messages: moreMsgs, totalCount } = await DB.getRecentGroupMessagesWithCount(activeGroup.id, nextVisibleCount);
+                            setMessages(moreMsgs);
+                            setTotalMsgCount(totalCount);
+                        }} className="px-4 py-2 bg-white/50 backdrop-blur-sm rounded-full text-xs text-slate-500 shadow-sm border border-white hover:bg-white transition-colors">
+                            加载历史消息 ({collapsedCount})
+                        </button>
                     </div>
-                    <div className="flex justify-center gap-2">
-                        {olderRemaining > 0 && activeGroup && (
-                            <button onClick={async () => {
-                                const beforeId = messages[0]?.id ?? Number.MAX_SAFE_INTEGER;
-                                const older = await DB.getGroupMessagesBefore(activeGroup.id, beforeId, MESSAGE_PAGE_SIZE);
-                                if (!older.length) { setOlderRemaining(0); return; }
-                                setMessages(older);
-                                setOlderRemaining(prev => Math.max(0, prev - older.length));
-                                setIsViewingHistory(true);
-                                requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0; });
-                            }} className="pointer-events-auto px-4 py-2 bg-white/90 backdrop-blur-sm rounded-full text-xs text-slate-500 shadow-sm border border-white hover:bg-white transition-colors">
-                                显示更多消息（还有 {olderRemaining} 条）
-                            </button>
-                        )}
-                        {isViewingHistory && activeGroup && (
-                            <button onClick={async () => {
-                                const { messages: latest, totalCount } = await DB.getRecentGroupMessagesWithCount(activeGroup.id, MESSAGE_PAGE_SIZE);
-                                setMessages(latest);
-                                setTotalMsgCount(totalCount);
-                                setOlderRemaining(Math.max(0, totalCount - latest.length));
-                                setIsViewingHistory(false);
-                            }} className="pointer-events-auto px-4 py-2 bg-violet-500 text-white rounded-full text-xs shadow-sm">
-                                回到最新消息
-                            </button>
-                        )}
-                    </div>
-                </div>
+                )}
                 {displayMessages.map((m, i) => {
                     const isUser = m.role === 'user';
                     const char = characters.find(c => c.id === m.charId);
@@ -1837,10 +1809,28 @@ ${memberTimeline || '(暂无互动记录)'}
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">群聊总结 · 公共话题盒</label>
                             <span className="text-[10px] text-violet-500 font-bold">{activeGroup?.topicBoxes?.length || 0} 个盒子</span>
                         </div>
+                        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1.5">
+                            {([
+                                { id: 'auto' as const, title: '自动整理', desc: '满100条自动成盒' },
+                                { id: 'manual' as const, title: '手动整理', desc: '只在点击时成盒' },
+                            ]).map(option => {
+                                const active = (activeGroup?.topicArchiveMode || 'auto') === option.id;
+                                return (
+                                    <button key={option.id} onClick={async () => {
+                                        if (!activeGroup) return;
+                                        await updateGroup(activeGroup.id, { topicArchiveMode: option.id });
+                                        setActiveGroup({ ...activeGroup, topicArchiveMode: option.id });
+                                    }} className={`rounded-xl px-3 py-2.5 text-left transition-all ${active ? 'bg-white shadow-sm ring-1 ring-violet-100' : 'text-slate-400'}`}>
+                                        <div className={`text-[11px] font-bold ${active ? 'text-violet-600' : 'text-slate-500'}`}>{option.title}</div>
+                                        <div className="text-[9px] mt-0.5">{option.desc}</div>
+                                    </button>
+                                );
+                            })}
+                        </div>
                         <div className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 to-indigo-50 p-3.5 space-y-2">
                             <p className="text-[11px] font-bold text-violet-700">一份总结，全群共同记住</p>
                             <p className="text-[10px] leading-5 text-violet-600/80">
-                                最近 {GROUP_TOPIC_HOT_ZONE} 条始终保留原文；更早的记录累计 {GROUP_TOPIC_BUFFER_THRESHOLD} 条后自动整理成公共话题盒。
+                                最近 {GROUP_TOPIC_HOT_ZONE} 条始终保留原文；更早的记录累计 {GROUP_TOPIC_BUFFER_THRESHOLD} 条后{(activeGroup?.topicArchiveMode || 'auto') === 'auto' ? '自动整理' : '等待你手动整理'}成公共话题盒。
                                 盒子只属于本群，同时会作为卡片送到每位成员私聊，之后可被各自的私聊上下文与归档正常理解。
                             </p>
                             <div className="flex items-center justify-between rounded-xl bg-white/70 px-3 py-2 text-[10px]">

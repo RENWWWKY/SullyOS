@@ -50,6 +50,19 @@ export interface GroupHistoryBlock {
     attachedImagesNote: string;
 }
 
+/** 相邻两条消息间隔超过这个阈值（毫秒）就在历史里插一条"隔了多久"的分隔行。默认 3 小时。 */
+export const GROUP_HISTORY_GAP_THRESHOLD_MS = 3 * 60 * 60 * 1000;
+
+/** 把毫秒时长说成人话："约 3 天" / "约 5 小时"，只在插分隔行时用。 */
+function formatGapDuration(ms: number): string {
+    const mins = Math.floor(ms / 60000);
+    const hours = Math.floor(mins / 60);
+    const days = Math.floor(hours / 24);
+    if (days >= 1) return `约 ${days} 天`;
+    if (hours >= 1) return `约 ${hours} 小时`;
+    return `约 ${mins} 分钟`;
+}
+
 /**
  * 群历史块（含最近图片结构化附带）。原 triggerDirector 内联逻辑，逐字搬出：
  * image 的 content 是 base64（processImage 压的 JPEG），emoji 是图床 URL——
@@ -74,7 +87,16 @@ export function buildGroupHistoryBlock(
     });
     const attachedSet = new Set(validImageWindowIdx.slice(-maxAttachedImages));
     const attachedImages: { tag: number; url: string }[] = [];
-    const text = msgs.map((m, i) => {
+    const lines: string[] = [];
+    let prevTs: number | null = null;
+    msgs.forEach((m, i) => {
+        // 相邻消息隔得久时插一条分隔行，让导演直接在记录里"看见"时间跳变——
+        // 否则用户隔几天回来发一句，模型会把几天前那条当"刚才"无缝续上旧话题。
+        if (prevTs != null && typeof m.timestamp === 'number' && m.timestamp - prevTs >= GROUP_HISTORY_GAP_THRESHOLD_MS) {
+            lines.push(`———（这里隔了 ${formatGapDuration(m.timestamp - prevTs)}，中间群里没人说话）———`);
+        }
+        if (typeof m.timestamp === 'number') prevTs = m.timestamp;
+
         let name = '用户';
         if (m.role === 'assistant') {
             name = characters.find(c => c.id === m.charId)?.name || '未知';
@@ -93,7 +115,7 @@ export function buildGroupHistoryBlock(
             content = `[表情包: ${stickerNameFromUrl(emojis, rawText.trim())}]`;
         } else if (m.type === 'transfer') {
             // 回执行自带完整句子（[系统: X 领取了 Y 的红包]），不加名字前缀
-            if (m.metadata?.packetReceipt) return packetHistoryLine(m, nameOf, now);
+            if (m.metadata?.packetReceipt) { lines.push(packetHistoryLine(m, nameOf, now)); return; }
             content = packetHistoryLine(m, nameOf, now);
         } else if (/^(data:|https?:\/\/)/i.test(rawText.trim())) {
             content = '[媒体]';
@@ -104,10 +126,12 @@ export function buildGroupHistoryBlock(
         if (m.replyTo) {
             const rawQuote = typeof m.replyTo.content === 'string' ? m.replyTo.content : '';
             const quoted = rawQuote.length > 60 ? rawQuote.slice(0, 60) + '…' : rawQuote;
-            return `[${name} 引用了 ${m.replyTo.name || '对方'} 说的「${quoted}」，并回复了 ↓]\n${name}: ${content}`;
+            lines.push(`[${name} 引用了 ${m.replyTo.name || '对方'} 说的「${quoted}」，并回复了 ↓]\n${name}: ${content}`);
+            return;
         }
-        return `${name}: ${content}`;
-    }).join('\n');
+        lines.push(`${name}: ${content}`);
+    });
+    const text = lines.join('\n');
     const attachedImagesNote = attachedImages.length > 0
         ? `\n（本轮附带 ${attachedImages.length} 张最近的图片，对应记录里的 [图片#1] ~ [图片#${attachedImages.length}]。请基于实际图片内容自然反应，不要无视，也不要瞎猜没附上的旧图。）\n`
         : '';

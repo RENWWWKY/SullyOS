@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDirectorActions, parseSummaryYaml } from './parse';
+import { parseDirectorActions, parseSummaryYaml, parseGroupTopicBox } from './parse';
 
 describe('parseDirectorActions', () => {
     it('标准 JSON 数组直接解析', () => {
@@ -68,5 +68,47 @@ describe('parseSummaryYaml', () => {
 
     it('空输入返回空串', () => {
         expect(parseSummaryYaml('')).toBe('');
+    });
+});
+
+describe('parseGroupTopicBox', () => {
+    it('第一层：标准 JSON', () => {
+        expect(parseGroupTopicBox('{"title":"猫猫围观","summary":"群里围观了一只猫。"}'))
+            .toEqual({ title: '猫猫围观', summary: '群里围观了一只猫。' });
+    });
+
+    it('第一层：带 ```json 围栏 + 前后废话', () => {
+        const raw = '好的：\n```json\n{"title":"旅行计划","summary":"大家聊了去哪玩。"}\n```\n以上。';
+        expect(parseGroupTopicBox(raw)).toEqual({ title: '旅行计划', summary: '大家聊了去哪玩。' });
+    });
+
+    it('第一层：剥推理模型 <think> 块', () => {
+        const raw = '<think>我先想想标题</think>{"title":"深夜emo","summary":"半夜大家都睡不着。"}';
+        expect(parseGroupTopicBox(raw)).toEqual({ title: '深夜emo', summary: '半夜大家都睡不着。' });
+    });
+
+    it('第二层：summary 里有裸换行（严格 JSON.parse 会挂）也能抠出字段', () => {
+        // 这正是线上"总结格式无法解析"的主因：字符串值里带真实换行
+        const raw = '{"title":"复盘","summary":"第一段发生了A。\n第二段发生了B。"}';
+        const parsed = parseGroupTopicBox(raw);
+        expect(parsed?.title).toBe('复盘');
+        expect(parsed?.summary).toContain('第一段发生了A。');
+        expect(parsed?.summary).toContain('第二段发生了B。');
+    });
+
+    it('第二层：缺 title 时给默认标题', () => {
+        const raw = '{"summary":"只有总结没标题。"}';
+        expect(parseGroupTopicBox(raw)).toEqual({ title: '一段群聊回忆', summary: '只有总结没标题。' });
+    });
+
+    it('第三层：完全没结构但有实质文本，整段兜底当总结', () => {
+        const raw = '群里今天聊了很多，气氛不错，大家分享了各自的近况。';
+        expect(parseGroupTopicBox(raw)).toEqual({ title: '一段群聊回忆', summary: raw });
+    });
+
+    it('空 / 无实质内容返回 null', () => {
+        expect(parseGroupTopicBox('')).toBeNull();
+        expect(parseGroupTopicBox('```json\n```')).toBeNull();
+        expect(parseGroupTopicBox('{}')).toBeNull();
     });
 });

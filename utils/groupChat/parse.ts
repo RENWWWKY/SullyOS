@@ -64,6 +64,73 @@ export function stripSkipMarker(raw: string): { skipped: boolean; content: strin
     return { skipped: content === '', content };
 }
 
+export interface GroupTopicBoxParsed {
+    title: string;
+    summary: string;
+}
+
+/**
+ * 解析「群公共话题盒」总结输出：提示词要求模型只吐 {"title","summary"} 的 JSON，
+ * 但实际返回常常掉格式（summary 里带裸换行 / 未转义引号、外面裹一层 ```json、
+ * 推理模型先来一段 <think>…</think>）。旧版 parseTopicBoxResponse 只做严格 JSON.parse，
+ * 一旦 parse 失败就整轮报「总结格式无法解析」并抛错——而这会让
+ * archivedThroughMessageId 永远推进不了，热区以前的消息越堆越多（用户实测卡到 649 条），
+ * 归档队列被一条坏输出永久堵死。这里按家规做三层容错，宁可给个粗糙总结也绝不卡住队列。
+ *
+ * 第一层（严格）：剥围栏 / <think> 后，整体 or 最外层 {…} 直接 JSON.parse。
+ * 第二层（宽松）：JSON 坏在字符串里的裸换行——直接正则抠 title / summary 字段值（允许含换行）。
+ * 第三层（兜底）：模型压根没给结构，只要有实质文本，整段当 summary 用（截断防超长）。
+ * 三层皆空返回 null，由调用方决定是否提示用户。
+ */
+export function parseGroupTopicBox(raw: string): GroupTopicBoxParsed | null {
+    const text = String(raw ?? '')
+        .replace(/<think>[\s\S]*?<\/think>/gi, '') // 推理模型的思考块，会把 JSON 冲垮
+        .replace(/```[a-zA-Z]*\r?\n?/g, '')
+        .replace(/```/g, '')
+        .trim();
+    if (!text) return null;
+
+    const fromObj = (p: any): GroupTopicBoxParsed | null => {
+        if (!p || typeof p !== 'object') return null;
+        const summary = p.summary == null ? '' : String(p.summary).trim();
+        if (!summary) return null;
+        const title = p.title == null ? '' : String(p.title).trim();
+        return { title: title || '一段群聊回忆', summary };
+    };
+
+    // 第一层：整体 JSON，或截取最外层 {…} 再 parse
+    try {
+        const hit = fromObj(JSON.parse(text));
+        if (hit) return hit;
+    } catch { /* 掉进下一层 */ }
+    const braceStart = text.indexOf('{');
+    const braceEnd = text.lastIndexOf('}');
+    if (braceStart !== -1 && braceEnd > braceStart) {
+        try {
+            const hit = fromObj(JSON.parse(text.slice(braceStart, braceEnd + 1)));
+            if (hit) return hit;
+        } catch { /* 掉进下一层 */ }
+    }
+
+    // 第二层：JSON 结构坏了，直接抠字段值（[\s\S] 容忍值里的裸换行）。
+    // summary 抠到闭合引号后紧跟的 , / } / 文末为止。
+    const summaryMatch = text.match(/["']?summary["']?\s*[:：]\s*["']([\s\S]*?)["']\s*(?:[,，}]|$)/i);
+    if (summaryMatch && summaryMatch[1].trim()) {
+        const titleMatch = text.match(/["']?title["']?\s*[:：]\s*["']([\s\S]*?)["']\s*(?:[,，}]|$)/i);
+        return {
+            title: (titleMatch?.[1] || '').trim() || '一段群聊回忆',
+            summary: summaryMatch[1].trim(),
+        };
+    }
+
+    // 第三层：完全没结构，但有实质文本——整段当总结用，好过永久卡死归档队列
+    const plain = text.replace(/^[{[]+/, '').replace(/[}\]]+$/, '').trim();
+    if (plain.length >= 10) {
+        return { title: '一段群聊回忆', summary: plain.length > 800 ? `${plain.slice(0, 800)}…` : plain };
+    }
+    return null;
+}
+
 /**
  * 解析群总结输出里的 summary 字段。
  * 第一层（严格）：剥围栏后匹配 `summary:` + 引号闭合配对（或裸值取到文末）。
