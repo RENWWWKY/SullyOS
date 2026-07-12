@@ -28,7 +28,7 @@ const presets: Array<{ name: string; desc: string; config: Partial<OSTheme> }> =
             chatMessageSpacing: 'default',
             chatInputStyle: 'rounded',
             chatSendButtonStyle: 'circle',
-            chatShowTimestamp: 'hover',
+            chatShowTimestamp: 'always',
         },
     },
     {
@@ -48,7 +48,7 @@ const presets: Array<{ name: string; desc: string; config: Partial<OSTheme> }> =
             chatMessageSpacing: 'default',
             chatInputStyle: 'wechat',
             chatSendButtonStyle: 'pill',
-            chatShowTimestamp: 'hover',
+            chatShowTimestamp: 'always',
         },
     },
     {
@@ -139,7 +139,7 @@ const defaults = {
     chatAvatarMode: 'grouped',
     chatBubbleStyle: 'modern',
     chatMessageSpacing: 'default',
-    chatShowTimestamp: 'hover',
+    chatShowTimestamp: 'always',
     chatHeaderStyle: 'default',
     chatInputStyle: 'default',
     chatChromeStyle: 'soft',
@@ -233,7 +233,7 @@ const choices = {
     ],
     timestamp: [
         { value: 'always', label: '始终显示' },
-        { value: 'hover', label: '悬停显示' },
+        { value: 'hover', label: '悬停（电脑）' },
         { value: 'never', label: '不显示' },
     ],
 } as const;

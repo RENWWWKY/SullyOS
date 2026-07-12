@@ -1277,7 +1277,7 @@ const MessageItem = React.memo(({
     avatarMode = 'grouped',
     bubbleVariant = 'modern',
     messageSpacing = 'default',
-    showTimestamp = 'hover',
+    showTimestamp = 'always',
     isPending = false,
     pendingIndicator = true,
     onMcdSendCart,
@@ -1296,13 +1296,10 @@ const MessageItem = React.memo(({
     const avatarRadiusClass = avatarShape === 'square' ? 'rounded-sm' : avatarShape === 'rounded' ? 'rounded-xl' : 'rounded-full';
     const avatarSizePx = avatarSize === 'small' ? 28 : avatarSize === 'large' ? 48 : 36;
     const shouldShowAvatar = avatarMode === 'every_message' || isLastInGroup;
-    // 头像绝对定位在气泡底部尖角处。只有 isLastInGroup 才会在气泡下方渲染时间戳，
-    // 时间戳预留了约 1.25rem 的竖向空间——头像的 bottom 偏移正是为对齐那种情况。
-    // 但 every_message 模式下每条都有头像，非组末条没有时间戳，气泡底就落在行底，
-    // 此时仍用 1.25rem 会让头像浮在气泡尖角上方（就是用户反馈的没对齐）。
-    // 所以：有时间戳 → 抬高 1.25rem 对齐气泡底；没时间戳 → 贴到行底与气泡尖角平齐。
-    const hasTimestampBelow = isLastInGroup && showTimestamp !== 'never';
-    const avatarBottomClass = hasTimestampBelow ? 'bottom-[1.25rem]' : 'bottom-0';
+    // 头像绝对定位在气泡底部尖角处，bottom 恒为 0。
+    // 时间戳改用绝对定位浮层（见下方渲染处），不再占据行内高度，
+    // 于是气泡列底恒等于气泡尖角——头像贴 bottom-0 就始终对齐：
+    // 组末/组中、时间戳开或关都一样，发新消息也不会因参考高度变化而位移。
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const startPos = useRef({ x: 0, y: 0 });
     const activePointerId = useRef<number | null>(null);
@@ -1712,7 +1709,7 @@ const MessageItem = React.memo(({
 
                 {/* Avatar - Absolute Positioned */}
                 {!isUser && (
-                    <div className={`absolute ${avatarBottomClass} z-0 ${selectionMode ? 'left-14' : 'left-3'} transition-all duration-300`}>
+                    <div className={`absolute bottom-0 z-0 ${selectionMode ? 'left-14' : 'left-3'} transition-[left] duration-300`}>
                         {renderAvatar(charAvatar)}
                     </div>
                 )}
@@ -1749,7 +1746,7 @@ const MessageItem = React.memo(({
                         </svg>
                     </div>
                     <div
-                        className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} min-w-0`}
+                        className={`relative flex flex-col ${isUser ? 'items-end' : 'items-start'} min-w-0`}
                         style={{
                             transform: `translateX(${replyOffset}px)`,
                             transition: isReplyGestureActive ? 'none' : 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)',
@@ -1786,14 +1783,14 @@ const MessageItem = React.memo(({
                         {content}
                     </div>
                     {isLastInGroup && showTimestamp !== 'never' && (
-                        <div className={`text-[9px] text-slate-400/80 px-1 mt-1 font-medium ${showTimestamp === 'hover' ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''}`}>{formatTime(m.timestamp)}</div>
+                        <div className={`absolute top-full ${isUser ? 'right-0' : 'left-0'} mt-0.5 px-1 text-[9px] text-slate-400/80 font-medium whitespace-nowrap pointer-events-none ${showTimestamp === 'hover' ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''}`}>{formatTime(m.timestamp)}</div>
                     )}
                     </div>
                 </div>
 
                 {/* User Avatar - Absolute Positioned */}
                 {isUser && (
-                    <div className={`absolute right-3 ${avatarBottomClass} z-0 transition-all duration-300`}>
+                    <div className={`absolute right-3 bottom-0 z-0 transition-[left] duration-300`}>
                         {renderAvatar(userAvatar)}
                     </div>
                 )}

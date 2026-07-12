@@ -2364,6 +2364,30 @@ const Chat: React.FC = () => {
 
     const collapsedCount = Math.max(0, totalMsgCount - displayMessages.length);
 
+    // ── 新消息进入动画 ──────────────────────────────────────────────
+    // 只让「刚追加的最新消息」（自己发的 / AI 回的）整条淡入一次。
+    // 进聊天首帧、切角色、翻历史（老消息 id 更小）都不播，避免满屏一起闪。
+    const animSeenMaxIdRef = useRef<number | null>(null);
+    const [animatingIds, setAnimatingIds] = useState<Set<number>>(() => new Set());
+    // 切角色 / 首次进入：清基线，下一轮 detect 只记录不播
+    useEffect(() => {
+        animSeenMaxIdRef.current = null;
+        setAnimatingIds(new Set());
+    }, [activeCharacterId]);
+    // 检测新增：id 超过基线的才淡入；首帧只记基线不播
+    useEffect(() => {
+        if (displayMessages.length === 0) return;
+        let maxId = -Infinity;
+        for (const m of displayMessages) if (typeof m.id === 'number' && m.id > maxId) maxId = m.id;
+        if (animSeenMaxIdRef.current === null) { animSeenMaxIdRef.current = maxId; return; }
+        const baseline = animSeenMaxIdRef.current;
+        const fresh = displayMessages.filter(m => typeof m.id === 'number' && m.id > baseline).map(m => m.id);
+        if (fresh.length > 0) {
+            setAnimatingIds(prev => { const next = new Set(prev); fresh.forEach(id => next.add(id)); return next; });
+            animSeenMaxIdRef.current = maxId;
+        }
+    }, [displayMessages]);
+
     // 稳定的思维链配置对象：只在角色/样式变化时重建，避免每次渲染新建对象击穿 MessageItem.memo。
     const thinkingChainOptions = useMemo(() => ({
         styleId: (char as any)?.thinkingChainStyle || 'echo',
@@ -2954,8 +2978,13 @@ const Chat: React.FC = () => {
                             id={`chat-msg-${m.id}`}
                             className={[
                                 flashMsgId === m.id ? 'ring-2 ring-yellow-300 bg-yellow-50/40 rounded-2xl mx-2' : '',
+                                animatingIds.has(m.id) ? 'animate-fade-in' : '',
                                 'transition-all duration-300',
                             ].filter(Boolean).join(' ')}
+                            onAnimationEnd={(e) => {
+                                if (e.target !== e.currentTarget) return;
+                                if (animatingIds.has(m.id)) setAnimatingIds(prev => { const next = new Set(prev); next.delete(m.id); return next; });
+                            }}
                         >
                         <MessageItem
                             msg={m}
