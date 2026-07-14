@@ -1567,7 +1567,10 @@ const ThemeMaker: React.FC = () => {
                             <div className="text-base font-bold text-slate-700">✅ 已存进气泡库 · 给谁穿上？</div>
                             <p className="mt-1.5 text-[11px] text-slate-400 leading-relaxed">
                                 勾选角色，「{editingTheme.name}」就会用在 ta 的聊天里；取消勾选则换回默认气泡。
-                                之后也能随时在 <b>聊天 → 顶栏会话面板 → 气泡样式</b> 里切换。
+                                想全局生效就点「全选」。之后也能随时在 <b>聊天 → 顶栏会话面板 → 气泡样式</b> 里切换。
+                            </p>
+                            <p className="mt-1 text-[10px] text-slate-400 leading-relaxed">
+                                气泡主题会盖过「外观 → 聊天界面」的可视化设置；但角色手写的「白框」自定义 CSS 优先级更高，撞上时以 CSS 为准。
                             </p>
                             <div className="mt-2.5 flex items-center gap-2">
                                 <button
