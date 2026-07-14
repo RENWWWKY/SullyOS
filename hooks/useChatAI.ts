@@ -1376,9 +1376,17 @@ export const useChatAI = ({
             // 详见 utils/applyAssistantPostProcessing.ts。Phase 0 行为字节级不变;
             // Phase 1 会让 instant push 路径也调它 (skipSecondPassLLM=true);
             // Phase 2 会让 worker 端把识别的副作用打包成 directives 传过来重放。
-            // 预览气泡在真实消息开始落库前清掉，避免同一句话短暂双份显示。
-            // （后处理第一步就会 saveMessage+setMessages，空档只有几十毫秒。）
-            setStreamingBubbles([]);
+            // 预览气泡的无缝交棒：不提前清（提前清 = 气泡集体消失→再劈里啪啦重放，用户实报），
+            // 而是包装 setMessages——后处理第一条真实消息落库上屏的**同一帧**清预览。
+            // 交接前预览一直挂着，交接后 instantRender 秒速回填，视觉上是"预览定格成正式消息"。
+            let previewHandedOver = false;
+            const setMessagesWithPreviewHandover = (msgs: Message[]) => {
+                setMessages(msgs);
+                if (!previewHandedOver) {
+                    previewHandedOver = true;
+                    setStreamingBubbles([]);
+                }
+            };
             const rawAiContent = data.choices?.[0]?.message?.content || '';
             const xhsCaches: XhsCaches = {
                 xsecTokenCache: xsecTokenCacheRef.current,
@@ -1404,7 +1412,7 @@ export const useChatAI = ({
                     effectiveApi,
                 },
                 hooks: {
-                    setMessages,
+                    setMessages: setMessagesWithPreviewHandover,
                     addToast,
                     setRecallStatus,
                     setSearchStatus,

@@ -3112,17 +3112,37 @@ const Chat: React.FC = () => {
                     </div>
                 )}
 
-                {/* 流式预览气泡：stream 开启时已完成的回复行先上屏（临时展示，落库后由真实消息替换） */}
+                {/* 流式预览气泡：stream 开启时已完成的回复行先上屏（临时展示，第一条真实消息
+                    落库时无缝交棒——见 useChatAI 的 setMessages 包装）。
+                    DOM 与真实消息同构（.group.justify-start > .absolute.z-0 头像 + .max-w-[72%].ml-12
+                    + .sully-bubble-ai > .select-text）——聊天细节微调（隐藏头像/贴边/字号行距）和
+                    气泡主题的颜色/圆角对预览一并生效，不再出现"预览不吃美化方案"的错位感。 */}
                 {streamingBubbles.length > 0 && !selectionMode && (
-                    <div className="flex items-end gap-3 px-3 mb-2 animate-fade-in">
-                        <img src={char.avatar} className={chatPendingAvatarClass} />
-                        <div className="flex flex-col items-start gap-1.5 max-w-[75%]">
-                            {streamingBubbles.map((bubble, i) => (
-                                <div key={i} className="px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-all bg-white text-slate-700 rounded-bl-sm shadow-sm border border-slate-100 animate-fade-in">
-                                    {bubble}
+                    <div className="space-y-1.5 mb-2">
+                        {streamingBubbles.map((bubble, i) => (
+                            <div key={i} className="group w-full flex justify-start relative px-3 animate-fade-in">
+                                {/* 头像只挂在最后一条上，贴合 grouped 折叠模式的观感；
+                                    absolute+z-0 结构让「隐藏头像」等微调 CSS 自动命中 */}
+                                {i === streamingBubbles.length - 1 && (
+                                    <div className="absolute left-3 bottom-0 z-0">
+                                        <img src={char.avatar} className={chatPendingAvatarClass} />
+                                    </div>
+                                )}
+                                <div className="relative max-w-[72%] min-w-0 ml-12">
+                                    <div
+                                        className="relative px-5 py-3 shadow-sm border border-black/5 overflow-visible sully-bubble-ai"
+                                        style={{
+                                            backgroundColor: activeTheme.ai.backgroundColor,
+                                            color: activeTheme.ai.textColor,
+                                            borderRadius: activeTheme.ai.borderRadius,
+                                            opacity: activeTheme.ai.opacity,
+                                        }}
+                                    >
+                                        <div className="select-text text-[15px] leading-relaxed whitespace-pre-wrap break-words">{bubble}</div>
+                                    </div>
                                 </div>
-                            ))}
-                        </div>
+                            </div>
+                        ))}
                     </div>
                 )}
                 {(isTyping || recallStatus || searchStatus || diaryStatus || isProactiveComposing) && !selectionMode && (
