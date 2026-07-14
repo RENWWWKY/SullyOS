@@ -66,3 +66,21 @@ describe('isSameCoreModel 方向性同名判定', () => {
         expect(isSameCoreModel('x', '')).toBe(true);
     });
 });
+
+describe('coreModelName 家族锚点裸前缀剥离（两头前缀不一样也能对上）', () => {
+    it('两头贴不同裸前缀 → 同名', () => {
+        expect(isSameCoreModel('gcli-gemini-3.1-pro-preview', 'vertex-gemini-3.1-pro-preview')).toBe(true);
+        expect(isSameCoreModel('gcli-gemini-3.1-pro-preview', '[逆-V]az-gemini-3.1-pro-preview')).toBe(true);
+    });
+
+    it('家族名本身开头的名字不被误剥', () => {
+        expect(coreModelName('chatgpt-4o-latest')).toBe('chatgpt-4o-latest');
+        expect(coreModelName('deepseek-chat')).toBe('deepseek-chat');
+        expect(coreModelName('gpt-4o-mini')).toBe('gpt-4o-mini');
+    });
+
+    it('剥前缀后尾部变体仍然抓得住', () => {
+        expect(isSameCoreModel('gcli-gemini-3.1-pro-preview', 'az-gemini-3.1-pro-preview-c')).toBe(false);
+        expect(isSameCoreModel('gcli-gemini-3.1-pro-preview', 'vertex-gemini-3.1-flash-preview')).toBe(false);
+    });
+});

@@ -103,11 +103,33 @@ function hostOf(url: string): string {
  * `(按次)gemini-3.1-pro-preview` 和 `gemini-3.1-pro-preview` 是同一个（只是渠道标签），
  * `gemini-3.1-pro-preview` 和 `gemini-3.1-pro-preview-c` 才是真的换了后端。
  */
+/**
+ * 已知模型家族开头（gemini-…/gpt-…/claude-…）。渠道前缀的花样穷举不完，
+ * 但家族名是个短且稳定的清单——把它当锚点：名字开头若不是家族名、且剥掉
+ * 一段裸前缀（`gcli-` / `vertex-ai/`）后就是，则认定那段是渠道标签。
+ * 这样「两头贴了不同裸前缀」（gcli-X vs vertex-X）也能对上核心名。
+ */
+const MODEL_FAMILY_RE = /^(gemini|gemma|gpt|chatgpt|o\d|claude|deepseek|qwen|qwq|glm|llama|grok|kimi|moonshot|mistral|mixtral|doubao|hunyuan|minimax|ernie|command|nova|phi)[-_.\d]/i;
+
+function stripBareChannelPrefixes(s: string): string {
+    let cur = s;
+    // 最多剥 3 层（渠道套渠道），每刀都必须让剩余部分以已知家族名开头才算数
+    for (let i = 0; i < 3; i++) {
+        if (MODEL_FAMILY_RE.test(cur)) return cur;
+        // 非贪婪取最短首段：'chatgpt-4o' 不会被误劈成 'chatgpt-4o' + …
+        const m = cur.match(/^[a-z0-9_.]{1,24}?[-/](.+)$/i);
+        if (!m || !MODEL_FAMILY_RE.test(m[1])) return cur;
+        cur = m[1];
+    }
+    return cur;
+}
+
 export function coreModelName(m: string): string {
-    return (m || '')
+    const stripped = (m || '')
         .replace(/\[[^\]]*\]|\([^)]*\)|（[^）]*）/g, '')
         .replace(/\s+/g, '')
         .toLowerCase();
+    return stripBareChannelPrefixes(stripped);
 }
 
 /**
