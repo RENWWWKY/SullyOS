@@ -253,7 +253,8 @@ const GroupMessageItem = React.memo(({
                     </div>
                 );
             case 'emoji':
-                return <img src={msg.content} className="w-24 h-24 object-contain drop-shadow-sm hover:scale-110 transition-transform" />;
+                // 尺寸跟随外观 → 表情包大小（--sully-emoji-size 三挡，默认 96px = 原 w-24）
+                return <img src={msg.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] object-contain drop-shadow-sm hover:scale-110 transition-transform" />;
             case 'transfer':
                 return (
                     <div onClick={(e) => { if (selectionMode) handleClick(e); }}>

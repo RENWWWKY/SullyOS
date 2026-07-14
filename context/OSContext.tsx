@@ -1312,6 +1312,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       root.style.setProperty('--primary-sat', `${s}%`);
       root.style.setProperty('--primary-lightness', `${l}%`);
 
+      // 聊天表情包尺寸（外观 → 表情包大小，三挡）：小 96 / 中 128 / 大 160（旧版尺寸）。
+      // 私聊 MessageItem 与群聊的表情 img 都用 var(--sully-emoji-size, 96px) 消费。
+      const emojiSize = theme.chatEmojiSize === 'large' ? '160px' : theme.chatEmojiSize === 'medium' ? '128px' : '96px';
+      root.style.setProperty('--sully-emoji-size', emojiSize);
+
       // 桌面皮肤：写到 <html data-skin>，供全局 CSS（index.html）与组件读取。
       root.dataset.skin = theme.skin || 'default';
   }, [theme]);

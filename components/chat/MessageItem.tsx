@@ -3032,7 +3032,7 @@ const MessageItem = React.memo(({
     if (m.type === 'emoji') {
         return commonLayout(
             m.content ? (
-                <img src={m.content} className="sully-emoji-msg max-w-[96px] max-h-[96px] w-auto h-auto object-contain hover:scale-105 transition-transform drop-shadow-md active:scale-95" loading="lazy" decoding="async" />
+                <img src={m.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] w-auto h-auto object-contain hover:scale-105 transition-transform drop-shadow-md active:scale-95" loading="lazy" decoding="async" />
             ) : (
                 <div className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-400 text-xs italic">[表情已丢失]</div>
             )
