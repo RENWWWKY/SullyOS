@@ -100,6 +100,11 @@ const AVATAR_SIZES: { value: 'small' | 'medium' | 'large'; label: string; size: 
     { value: 'medium', label: '中', size: 'w-9 h-9' },
     { value: 'large', label: '大', size: 'w-12 h-12' },
 ];
+const EMOJI_SIZES: { value: 'small' | 'medium' | 'large'; label: string; desc: string }[] = [
+    { value: 'small', label: '小', desc: '96px' },
+    { value: 'medium', label: '中', desc: '128px' },
+    { value: 'large', label: '大', desc: '160px · 旧版' },
+];
 const BUBBLE_STYLES: { value: 'modern' | 'flat' | 'outline' | 'shadow'; label: string; desc: string }[] = [
     { value: 'modern', label: '现代', desc: '圆角气泡+微透明' },
     { value: 'flat', label: '扁平', desc: '无阴影纯色气泡' },
@@ -331,6 +336,17 @@ const ChatAppearanceEditor: React.FC<{ theme: OSTheme; updateTheme: (u: Partial<
                         <OptionButton key={s.value} active={avatarSize === s.value} label={s.label} onClick={() => updateTheme({ chatAvatarSize: s.value })} />
                     ))}
                 </div>
+            </section>
+
+            {/* Emoji Sticker Size */}
+            <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
+                <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">表情包大小</h2>
+                <div className="flex gap-2">
+                    {EMOJI_SIZES.map(s => (
+                        <OptionButton key={s.value} active={(theme.chatEmojiSize || 'small') === s.value} label={s.label} desc={s.desc} onClick={() => updateTheme({ chatEmojiSize: s.value })} />
+                    ))}
+                </div>
+                <p className="text-[11px] text-slate-400 mt-2">聊天和群聊里发出的表情包图片尺寸。用自定义 CSS 调过尺寸的美化会继续覆盖这里的设置。</p>
             </section>
 
             {/* Bubble Style */}

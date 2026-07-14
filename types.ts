@@ -92,6 +92,8 @@ export interface OSTheme {
   // Chat UI customization (global)
   chatAvatarShape?: 'circle' | 'rounded' | 'square';
   chatAvatarSize?: 'small' | 'medium' | 'large';
+  /** 聊天表情包大小三挡：小 96px（默认）/ 中 128px / 大 160px（旧版尺寸）。经 --sully-emoji-size CSS 变量生效 */
+  chatEmojiSize?: 'small' | 'medium' | 'large';
   chatAvatarMode?: 'grouped' | 'every_message';
   chatBubbleStyle?: 'modern' | 'flat' | 'outline' | 'shadow' | 'wechat' | 'ios';
   chatMessageSpacing?: 'compact' | 'default' | 'spacious';

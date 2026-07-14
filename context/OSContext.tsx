@@ -18,6 +18,7 @@ import { migrateWorldDaySegs } from '../utils/worldHome/prompts';
 import { ChatParser } from '../utils/chatParser';
 import { safeFetchJson } from '../utils/safeApi';
 import { recordApiCall, setApiCallAmbientContext } from '../utils/apiCallLog';
+import { isGlobalStreamEnabled, upgradeChatBodyToStream, assembleUpgradedResponse } from '../utils/streamUpgrade';
 import { rewriteStaleWorkerUrl } from '../utils/proxyWorker';
 import { INSTALLED_APPS } from '../constants';
 import { markBackupDone } from '../utils/backupReminder';
@@ -817,14 +818,31 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // 某些模型废弃了 temperature/top_p/top_k，带上直接 400。这里在所有 /chat/completions
           // 的统一出口做发送前主动摘除，覆盖 Schedule / 记忆 / 见面等全部旁路调用点。
           let sendArgs: [RequestInfo | URL, RequestInit?] = args;
+          // 透明流式升级状态（utils/streamUpgrade.ts）：请求侧改写 → 响应侧拼回 JSON
+          let streamUpgraded = false;
+          let bodyBeforeStreamUpgrade: string | null = null;
           if (urlStr.includes('/chat/completions')) {
               const rawBody = (config as RequestInit | undefined)?.body;
               if (typeof rawBody === 'string') {
                   try {
                       const parsed = JSON.parse(rawBody);
+                      let body = rawBody;
                       if (modelRejectsSamplingParams(parsed?.model) && stripSamplingParams(parsed)) {
-                          sendArgs = [resource, { ...(config as RequestInit), body: JSON.stringify(parsed) }];
+                          body = JSON.stringify(parsed);
                       }
+                      // 透明流式升级：主 API 开了 stream 时，把硬编码非流式的旁路调用
+                      // （查手机/记忆宫殿/日程/剧场/群聊…40+ 处）升级为流式**传输**，防网关
+                      // 空闲超时把长生成掐成半截；响应会在下面攒齐拼回标准 JSON，调用方无感。
+                      // 已自带 stream:true 的请求（聊天主路径/见面/情绪评估）不碰。
+                      if (isGlobalStreamEnabled()) {
+                          const upgraded = upgradeChatBodyToStream(body);
+                          if (upgraded) {
+                              bodyBeforeStreamUpgrade = body;
+                              body = upgraded;
+                              streamUpgraded = true;
+                          }
+                      }
+                      if (body !== rawBody) sendArgs = [resource, { ...(config as RequestInit), body }];
                   } catch { /* 非 JSON body：原样放行 */ }
               }
           }
@@ -850,11 +868,26 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }
               }
 
-              const durationMs = Date.now() - fetchStartedAt;
+              // 流式升级自愈：个别中转对 stream/stream_options 直接 4xx → 用升级前的
+              // 原 body 重发一次，行为退回旧版（升级只能赚不能赔）。
+              if (streamUpgraded && !response.ok && (response.status === 400 || response.status === 422) && bodyBeforeStreamUpgrade) {
+                  console.warn('🔁 [StreamUpgrade] 中转拒绝流式升级(HTTP ' + response.status + ')，回退原请求重发');
+                  response = await originalFetch(resource, { ...(config as RequestInit), body: bodyBeforeStreamUpgrade });
+                  streamUpgraded = false;
+              }
+              // 流式升级的响应归一化：SSE 攒齐拼回标准 chat.completion JSON——
+              // 调用方（safeResponseJson / res.json() 均可）拿到与升级前等价的响应。
+              if (streamUpgraded && response.ok) {
+                  response = await assembleUpgradedResponse(response);
+              }
 
               // 「API 调用记录」统一记录入口：所有 /chat/completions（裸 fetch + safeFetchJson
               // 内部 fetch 都会经过这里）都记一笔。meta 优先取调用方挂在 init 上的 __sullyMeta
               // （safeFetchJson 传的精确信息），裸 fetch 没有就由 recordApiCall 用环境兜底。
+              // ⚠️ 耗时必须在 clone 读完**整个响应体**后再算：fetch 在响应头到达时就 resolve，
+              // 流式透传的正文可能再流几十秒——旧版在 headers 处截止，「假流」渠道 6.5s 出头、
+              // 正文 44s 才灌完，卡片却记成 6.5s（实测误导排查）。clone 与调用方并行消费同一
+              // 条流，text() 完成时刻 ≈ 真实收完时刻。
               if (urlStr.includes('/chat/completions')) {
                   const meta = (config as any)?.__sullyMeta;
                   const body = (sendArgs[1] as any)?.body;
@@ -865,12 +898,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   try { usageClone = response.clone(); } catch { usageClone = null; }
                   if (usageClone) {
                       usageClone.text().then((t) => {
+                          const durationMs = Date.now() - fetchStartedAt;
                           let parsed: any = undefined;
-                          try { parsed = JSON.parse(t); } catch { /* 流式/非 JSON：无 usage，照样记 */ }
-                          recordApiCall({ url: urlStr, body, status, ok, response: parsed, meta, durationMs });
-                      }).catch(() => recordApiCall({ url: urlStr, body, status, ok, meta, durationMs }));
+                          try { parsed = JSON.parse(t); } catch { /* 流式/非 JSON：把原始文本交给 recordApiCall 的 SSE 兜底解析 */ }
+                          recordApiCall({ url: urlStr, body, status, ok, response: parsed, responseText: parsed === undefined ? t : undefined, meta, durationMs });
+                      }).catch(() => recordApiCall({ url: urlStr, body, status, ok, meta, durationMs: Date.now() - fetchStartedAt }));
                   } else {
-                      recordApiCall({ url: urlStr, body, status, ok, meta, durationMs });
+                      recordApiCall({ url: urlStr, body, status, ok, meta, durationMs: Date.now() - fetchStartedAt });
                   }
               }
 
@@ -1277,6 +1311,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       root.style.setProperty('--primary-hue', String(h));
       root.style.setProperty('--primary-sat', `${s}%`);
       root.style.setProperty('--primary-lightness', `${l}%`);
+
+      // 聊天表情包尺寸（外观 → 表情包大小，三挡）：小 96 / 中 128 / 大 160（旧版尺寸）。
+      // 私聊 MessageItem 与群聊的表情 img 都用 var(--sully-emoji-size, 96px) 消费。
+      const emojiSize = theme.chatEmojiSize === 'large' ? '160px' : theme.chatEmojiSize === 'medium' ? '128px' : '96px';
+      root.style.setProperty('--sully-emoji-size', emojiSize);
 
       // 桌面皮肤：写到 <html data-skin>，供全局 CSS（index.html）与组件读取。
       root.dataset.skin = theme.skin || 'default';
