@@ -13,8 +13,27 @@ describe('buildChatFineTuneCss', () => {
         const css = buildChatFineTuneCss({ chatAvatarVisibility: 'hide_ai', chatSnapToEdge: true });
         expect(css).toContain('.group.justify-start > [class~="absolute"][class~="z-0"] { display: none');
         expect(css).not.toContain('.group.justify-end > [class~="absolute"][class~="z-0"] { display: none');
-        expect(css).toContain('.ml-12 { margin-left: 0 !important; }');
+        expect(css).toContain('.ml-12:not(.sully-html-wrap) { margin-left: 0 !important; }');
         expect(css).not.toContain('margin-right: 0');
+    });
+
+    it('心象卡片钉回默认位置：贴边补 48px、缩进补 48-indent、没动不出规则', () => {
+        const snapCss = buildChatFineTuneCss({ chatAvatarVisibility: 'hide_ai', chatSnapToEdge: true });
+        expect(snapCss).toContain('.sully-psyche { margin-left: 48px !important; }');
+        const indentCss = buildChatFineTuneCss({ chatBubbleIndent: 60 });
+        expect(indentCss).toContain('.sully-psyche { margin-left: -12px !important; }');
+        // 贴边只作用于用户侧时，AI 包装层只受缩进影响 → 按缩进补
+        const mixedCss = buildChatFineTuneCss({ chatAvatarVisibility: 'hide_user', chatSnapToEdge: true, chatBubbleIndent: 28 });
+        expect(mixedCss).toContain('.sully-psyche { margin-left: 20px !important; }');
+        // 包装层没动（只改字号/对齐）→ 不出心象规则
+        expect(buildChatFineTuneCss({ chatBubbleFontSize: 14, chatAvatarAlign: 'top' })).not.toContain('sully-psyche');
+    });
+
+    it('贴边/缩进的选择器都 :not() 绕开 HTML 卡片包装（卡片不随美化挪窝）', () => {
+        const css = buildChatFineTuneCss({ chatAvatarVisibility: 'hide_both', chatSnapToEdge: true, chatBubbleIndent: 60 });
+        const wrapRules = css.split('\n').filter(line => line.includes('.ml-12') || line.includes('.mr-12'));
+        expect(wrapRules.length).toBeGreaterThan(0);
+        for (const rule of wrapRules) expect(rule).toContain(':not(.sully-html-wrap)');
     });
 
     it('顶部对齐 + 垂直微调', () => {
