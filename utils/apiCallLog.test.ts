@@ -128,7 +128,8 @@ describe('buildPromptBreakdown', () => {
                 { role: 'user', content: [{ type: 'text', text: '看图' }, { type: 'image_url', image_url: { url: 'data:...' } }] },
             ],
         })!;
-        expect(blocks[0].label).toBe('聊天历史·用户消息 ×1');
+        // 单条请求走「提示词整体」标注（见下方 describe），此处只锁多模态计数口径
+        expect(blocks[0].label).toBe('提示词整体「看图 [图片]」');
         expect(blocks[0].chars).toBe('看图 [图片]'.length);
     });
 
@@ -174,5 +175,27 @@ describe('buildPromptBreakdown · 巨型 user 消息拆块', () => {
             ],
         })!;
         expect(blocks).toEqual([{ label: '聊天历史·用户消息 ×2', chars: '## 今天的计划\n买菜'.length + 2 }]);
+    });
+});
+
+// 单条 user 提示词（记忆提取/日程生成等大量调用点的形态）：标「提示词整体」而非
+// 「聊天历史」，用首行摘要标识任务。
+describe('buildPromptBreakdown · 单条提示词标注', () => {
+    it('无块头的单条 user 请求标成「提示词整体『首行』」', () => {
+        const blocks = buildPromptBreakdown({
+            messages: [{ role: 'user', content: '请从以下对话中提取记忆事件。\n对话：……' }],
+        })!;
+        expect(blocks).toHaveLength(1);
+        expect(blocks[0].label).toBe('提示词整体「请从以下对话中提取记忆事件。」');
+    });
+
+    it('多条消息时仍按聊天历史聚合', () => {
+        const blocks = buildPromptBreakdown({
+            messages: [
+                { role: 'system', content: '### 规则\n……' },
+                { role: 'user', content: '你好' },
+            ],
+        })!;
+        expect(blocks.map(b => b.label)).toContain('聊天历史·用户消息 ×1');
     });
 });
