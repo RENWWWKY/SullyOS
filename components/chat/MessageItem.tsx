@@ -1228,8 +1228,8 @@ interface MessageItemProps {
     bubbleVariant?: 'modern' | 'flat' | 'outline' | 'shadow' | 'wechat' | 'ios';
     messageSpacing?: 'compact' | 'default' | 'spacious';
     showTimestamp?: 'always' | 'hover' | 'never';
-    /** HTML 卡片 / 心象卡片的出现位置（聊天细节微调 chatModuleAlign，全局+角色覆盖合并后的生效值） */
-    moduleAlign?: 'default' | 'center';
+    /** HTML 卡片 / 心象卡片的出现位置（聊天细节微调 chatModuleAlign 合并后的生效值）。缺省 = 居中 */
+    moduleAlign?: 'anchor' | 'center';
     /** 流式预览无缝接棒时，正式消息首帧已经可见，不应再次从透明态淡入。 */
     suppressEntranceAnimation?: boolean;
     /** Instant Push 准备中：在用户气泡左侧渲染 dot pulse */
@@ -1282,7 +1282,7 @@ const MessageItem = React.memo(({
     bubbleVariant = 'modern',
     messageSpacing = 'default',
     showTimestamp = 'always',
-    moduleAlign = 'default',
+    moduleAlign = 'center',
     suppressEntranceAnimation = false,
     isPending = false,
     pendingIndicator = true,
@@ -1706,9 +1706,9 @@ const MessageItem = React.memo(({
     // HTML 卡片（280px 定宽模块）默认位置就是"视觉居中"的约定：包装层打上 sully-html-wrap，
     // 让「聊天细节微调」的贴边/缩进规则 :not() 绕开它——美化怎么开卡片都不挪窝。
     const isHtmlCard = m.type === 'html_card';
-    // 聊天细节微调 chatModuleAlign='center'：HTML 卡片 / 心象卡片改为水平居中。
+    // 聊天细节微调 chatModuleAlign：HTML 卡片 / 心象卡片默认水平居中，'anchor' 才贴气泡列。
     // 心象居中时抽出到气泡行上方的独立行（不带 .group 类，注入的钉位 CSS 自然不命中）。
-    const centerModules = moduleAlign === 'center';
+    const centerModules = moduleAlign !== 'anchor';
     // 心象卡片（思考链）：默认渲染在气泡包装层内、气泡上方；居中模式挪到独立行。
     const thinkingChainNode = !isUser && m.metadata?.thinkingChain ? (
         <div className={`relative w-full ${selectionMode ? 'pl-7' : ''}`}>

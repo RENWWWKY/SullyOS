@@ -115,9 +115,10 @@ describe('mergeChatFineTune', () => {
         expect(buildChatFineTuneCss(merged)).toBe('');
     });
 
-    it('chatModuleAlign 参与合并但不生成 CSS（经 MessageItem 布局属性生效）', () => {
-        const merged = mergeChatFineTune({ chatModuleAlign: 'default' }, { enabled: true, chatModuleAlign: 'center' });
-        expect(merged.chatModuleAlign).toBe('center');
+    it('chatModuleAlign 参与合并但不生成 CSS（经 MessageItem 布局属性生效，缺省=居中）', () => {
+        const merged = mergeChatFineTune({ chatModuleAlign: 'center' }, { enabled: true, chatModuleAlign: 'anchor' });
+        expect(merged.chatModuleAlign).toBe('anchor');
         expect(buildChatFineTuneCss({ chatModuleAlign: 'center' })).toBe('');
+        expect(buildChatFineTuneCss({ chatModuleAlign: 'anchor' })).toBe('');
     });
 });
