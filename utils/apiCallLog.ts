@@ -328,7 +328,17 @@ export function buildPromptBreakdown(body: unknown): PromptBlockStat[] | undefin
                 otherChars += text.length; otherCount++;
             }
         }
-        if (userCount) out.push({ label: `聊天历史·用户消息 ×${userCount}`, chars: userChars });
+        if (userCount) {
+            // 记忆提取/日程生成/查手机等大量调用点是「单条 user 提示词」形态——
+            // 标成"聊天历史"纯属误导，改用首行摘要让人一眼看出是什么任务。
+            const soloPrompt = messages.length === 1 && userCount === 1;
+            const firstLine = soloPrompt
+                ? (contentToText(messages[0]?.content).trimStart().split('\n', 1)[0] || '').slice(0, BLOCK_LABEL_MAX)
+                : '';
+            out.push(soloPrompt
+                ? { label: `提示词整体「${firstLine}」`, chars: userChars }
+                : { label: `聊天历史·用户消息 ×${userCount}`, chars: userChars });
+        }
         if (asstCount) out.push({ label: `聊天历史·角色消息 ×${asstCount}`, chars: asstChars });
         if (otherCount) out.push({ label: `其他消息（tool 等）×${otherCount}`, chars: otherChars });
         if (out.length === 0) return undefined;
