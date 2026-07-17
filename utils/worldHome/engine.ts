@@ -351,6 +351,8 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
                 const payload = await buildChatRequestPayload({
                     char, userProfile, groups, emojis: [], categories: [],
                     historyMsgs, contextLimit, realtimeConfig, recallQueryHint,
+                    // 家园可配独立 API（可能不支持视觉，image_url 会 400）→ 历史图片压平成文本占位
+                    stripImages: true,
                 });
                 const systemPrompt = payload.systemPrompt
                     + buildWorldSystemAddendum(world, char, userProfile?.name || '')
@@ -587,6 +589,8 @@ export async function rerollWorldCharBeat(
         const payload = await buildChatRequestPayload({
             char, userProfile, groups, emojis: [], categories: [],
             historyMsgs, contextLimit, realtimeConfig, recallQueryHint,
+            // 同上：独立 API 可能不支持视觉 → 历史图片压平成文本占位
+            stripImages: true,
         });
         const systemPrompt = payload.systemPrompt
             + buildWorldSystemAddendum(world, char, userProfile?.name || '')

@@ -77,6 +77,13 @@ export interface BuildChatPayloadInput {
     luckinMiniSnap?: LuckinMiniAppSnapshot;
     /** 瑞幸聊天点单模式 (点"瑞一杯"激活, 角色直接调真实工具) */
     luckinChat?: LuckinChatState;
+    /**
+     * 把历史里的多模态图片消息（content 数组 + image_url）压平成纯文本占位。
+     * 彼方/小小窝等复用聊天历史、但配了独立 API 的场景必须开：目标模型可能不支持
+     * 视觉输入（DeepSeek 等对 image_url 直接 400），且这些纯文本情景里 base64 图片
+     * 只是把上下文撑爆的噪声（与群聊注入"不要把媒体当文本塞"同一约定）。
+     */
+    stripImages?: boolean;
 }
 
 export interface BuildChatPayloadResult {
@@ -156,6 +163,24 @@ export function cleanApiMessages(apiMessages: Array<{ role: string; content: any
 }
 
 /**
+ * 把 buildMessageHistory 产出的多模态图片消息压平成纯文本：保留 text 部分
+ * （里面已带 `[User sent an image]` 占位与时间戳），丢弃 image_url 部分。
+ * 与 buildMessageHistory 的"图片数据已丢失"分支产出完全同形。
+ * 导出仅为单测。
+ */
+export function flattenImageContentParts(apiMessages: Array<{ role: string; content: any }>): Array<{ role: string; content: any }> {
+    return apiMessages.map((msg) => {
+        if (!Array.isArray(msg.content)) return msg;
+        const text = msg.content
+            .filter((part: any) => part?.type === 'text')
+            .map((part: any) => part.text || '')
+            .join('\n')
+            .trim();
+        return { ...msg, content: text || '[图片]' };
+    });
+}
+
+/**
  * 构造完整 chat 请求载荷。三段式结构（稳定前缀 / 历史 / 易变尾段）：
  *
  *   1. injectMemoryPalace（向量召回挂到 char.memoryPalaceInjection）
@@ -184,7 +209,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
 
     if (isPromptBuildSkipped()) {
         const { apiMessages } = ChatPrompts.buildMessageHistory(historyMsgs, contextLimit, char, userProfile, emojis);
-        const cleanedApiMessages = cleanApiMessages(apiMessages);
+        const cleanedApiMessages = cleanApiMessages(input.stripImages ? flattenImageContentParts(apiMessages) : apiMessages);
         console.warn('[DevDebug] Prompt Build skipped: sending chat history without system prompt injection.');
         return {
             systemPrompt: '',
@@ -282,8 +307,8 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // ── 7. 历史消息构造 ───────────────────────────────────
     const { apiMessages } = ChatPrompts.buildMessageHistory(historyMsgs, contextLimit, char, userProfile, emojis);
 
-    // ── 8. 剥离历史里旧的双语标签 ─────────────────────────
-    const cleanedApiMessages = cleanApiMessages(apiMessages);
+    // ── 8. 剥离历史里旧的双语标签（stripImages 时先压平 image_url → 纯文本占位） ──
+    const cleanedApiMessages = cleanApiMessages(input.stripImages ? flattenImageContentParts(apiMessages) : apiMessages);
     const resolvedWorldbookEntries = resolveWorldbookEntries(
         char.mountedWorldbooks || [],
         cleanedApiMessages,

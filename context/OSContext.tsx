@@ -25,6 +25,7 @@ import { markBackupDone } from '../utils/backupReminder';
 import { normalizeCharacterImpression, normalizeCharacterDefaults } from '../utils/impression';
 import { isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { evaluateEmotionBackground } from '../hooks/useChatAI';
+import { CHAT_GEN_EVENTS, setChatViewSnapshot } from '../utils/chatGenEvents';
 import { buildChatRequestPayload } from '../utils/chatRequestPayload';
 import { extractHtmlBlocks } from '../utils/htmlPrompt';
 import { loadMusicHooks, loadMusicPlaybackSnapshot } from './MusicContext';
@@ -1336,6 +1337,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const activeCharIdScheduleRef = useRef(activeCharacterId);
   activeAppRef.current = activeApp;
   activeCharIdScheduleRef.current = activeCharacterId;
+
+  // 当前聊天视图快照 → 模块级 slot（utils/chatGenEvents）。根级 ChatBroadcast 挂在
+  // OSProvider 之外拿不到这两个 state，靠快照判断"用户正看着的会话不弹全局横幅"。
+  useEffect(() => {
+      setChatViewSnapshot(activeApp === AppID.Chat, activeCharacterId ?? null);
+  }, [activeApp, activeCharacterId]);
   // 通话状态（含挂起到后台的通话）——主动消息流程读它来判断"是否正在通话"
   const suspendedCallRef = useRef(suspendedCall);
   suspendedCallRef.current = suspendedCall;
@@ -1557,16 +1564,43 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }).catch(() => {});
       };
 
+      // 本地 fetch 聊天回复的全局回落：triggerAI 的异步闭包在 Chat 卸载后继续跑完
+      // 并落库，但它捕获的 setMessages 指向已卸载的实例。这里是它跟当前 UI 的唯一桥：
+      //   - replyArrived（后处理管线全部落库后）→ bump lastMsgTimestamp 让当前挂载的
+      //     Chat 重新 reloadMessages；用户不在该会话时补未读 + toast——与 instant push
+      //     的 'active-msg-received' 行为对齐。
+      //   - replyEnd（finally，含失败路径）→ 只 bump 时间戳，把 catch 里落库的
+      //     错误系统消息也刷出来。
+      const chatReplyArrivedHandler = (e: Event) => {
+          const { charId, charName } = ((e as CustomEvent).detail || {}) as { charId?: string; charName?: string };
+          if (!charId) return;
+          setLastMsgTimestamp(Date.now());
+          const isChattingWithThisChar = activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === charId;
+          if (!isChattingWithThisChar) {
+              setUnreadMessages(prev => ({ ...prev, [charId]: (prev[charId] || 0) + 1 }));
+              if (document.visibilityState === 'visible') {
+                  addToast(`${charName || '角色'} 回复了消息`, 'success');
+              }
+          }
+      };
+      const chatReplyEndHandler = () => {
+          setLastMsgTimestamp(Date.now());
+      };
+
       window.addEventListener('active-msg-received', handler);
       window.addEventListener('active-msg-progress', progressHandler);
       window.addEventListener('active-msg-open', openHandler);
       window.addEventListener('emotion-updated', buffSyncHandler);
+      window.addEventListener(CHAT_GEN_EVENTS.replyArrived, chatReplyArrivedHandler);
+      window.addEventListener(CHAT_GEN_EVENTS.replyEnd, chatReplyEndHandler);
       document.addEventListener('visibilitychange', onVisible);
       return () => {
           window.removeEventListener('active-msg-received', handler);
           window.removeEventListener('active-msg-progress', progressHandler);
           window.removeEventListener('active-msg-open', openHandler);
           window.removeEventListener('emotion-updated', buffSyncHandler);
+          window.removeEventListener(CHAT_GEN_EVENTS.replyArrived, chatReplyArrivedHandler);
+          window.removeEventListener(CHAT_GEN_EVENTS.replyEnd, chatReplyEndHandler);
           document.removeEventListener('visibilitychange', onVisible);
       };
   }, [sendProactiveNativeNotification]);
