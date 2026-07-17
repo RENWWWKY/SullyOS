@@ -1118,8 +1118,15 @@ export const DB = {
 
   saveAsset: async (id: string, data: string): Promise<void> => {
     const db = await openDB();
-    const transaction = db.transaction(STORE_ASSETS, 'readwrite');
-    transaction.objectStore(STORE_ASSETS).put({ id, data });
+    // 等事务真正落盘并把失败抛出去：旧实现发完 put 就返回，配额不足（iOS Safari 常见）
+    // 时写入静默丢失，调用方还以为保存成功了。
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_ASSETS, 'readwrite');
+        transaction.objectStore(STORE_ASSETS).put({ id, data });
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('IndexedDB transaction aborted'));
+    });
   },
 
   getAssetRaw: async (id: string): Promise<any | null> => {
