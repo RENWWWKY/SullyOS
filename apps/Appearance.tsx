@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useOS, DEFAULT_WALLPAPER } from '../context/OSContext';
+import { useOS, DEFAULT_WALLPAPER, DEFAULT_PAPER_APPEARANCE } from '../context/OSContext';
 import { OSTheme, DesktopDecoration, AppearancePreset, Toast } from '../types';
 import { INSTALLED_APPS, Icons } from '../constants';
 import { processImage, processImageToBlob } from '../utils/file';
@@ -14,9 +14,9 @@ import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
-const CustomIconImage: React.FC<{ value: string; alt: string }> = ({ value, alt }) => {
+const CustomIconImage: React.FC<{ value: string; alt: string; preserveOutline?: boolean }> = ({ value, alt, preserveOutline = false }) => {
     const url = useBlobRefUrl(value);
-    return url ? <img src={url} className="w-full h-full object-contain" alt={alt} /> : null;
+    return url ? <img src={url} className={`w-full h-full ${preserveOutline ? 'object-contain' : 'object-cover rounded-2xl'}`} alt={alt} /> : null;
 };
 
 // Touch-friendly long-press wrapper. `onContextMenu` alone misses iOS Safari /
@@ -158,12 +158,11 @@ const DESKTOP_SKINS: { id: string; name: string; desc: string; swatch: string; c
   {
     id: 'default',
     name: '默认风格',
-    desc: '经典 SullyOS 玻璃拟物界面',
-    swatch: 'linear-gradient(135deg,#FFDEE9 0%,#B5FFFC 100%)',
+    desc: '暖米白纸感桌面 · 低对比柔和配色',
+    swatch: DEFAULT_WALLPAPER,
     config: {
       skin: 'default',
-      hue: 245, saturation: 25, lightness: 65,
-      contentColor: '#ffffff',
+      ...DEFAULT_PAPER_APPEARANCE,
       wallpaper: DEFAULT_WALLPAPER,
     },
   },
@@ -594,21 +593,21 @@ const Appearance: React.FC = () => {
           // 改存 Blob：原画质不重绘，二进制进 blob_assets，字段只存 blobref 令牌（省 ~33% 空间、不占 JS 堆）。
           const blob = await processImageToBlob(file, { skipCompression: true });
           const ref = await putImageBlob(blob);
-          updateTheme({ wallpaper: ref });
+          await updateTheme({ wallpaper: ref });
           addToast('壁纸更新成功', 'success');
       } catch (e: any) {
           addToast(e.message, 'error');
       }
   };
 
-  const applyWallpaperUrl = () => {
+  const applyWallpaperUrl = async () => {
       const url = wallpaperUrl.trim();
       if (!url) return;
       if (!/^https?:\/\//i.test(url) && !url.startsWith('data:') && !url.startsWith('blob:')) {
           addToast('请填写以 http(s):// 开头的图片地址', 'error');
           return;
       }
-      updateTheme({ wallpaper: url });
+      await updateTheme({ wallpaper: url });
       setWallpaperUrl('');
       addToast('壁纸已应用', 'success');
   };
@@ -618,21 +617,21 @@ const Appearance: React.FC = () => {
           addToast('正在处理锁屏壁纸 (原画质)...', 'info');
           const blob = await processImageToBlob(file, { skipCompression: true });
           const ref = await putImageBlob(blob);
-          updateTheme({ lockWallpaper: ref });
+          await updateTheme({ lockWallpaper: ref });
           addToast('锁屏壁纸更新成功', 'success');
       } catch (e: any) {
           addToast(e.message, 'error');
       }
   };
 
-  const applyLockWallpaperUrl = () => {
+  const applyLockWallpaperUrl = async () => {
       const url = lockWallpaperUrl.trim();
       if (!url) return;
       if (!/^https?:\/\//i.test(url) && !url.startsWith('data:') && !url.startsWith('blob:')) {
           addToast('请填写以 http(s):// 开头的图片地址', 'error');
           return;
       }
-      updateTheme({ lockWallpaper: url });
+      await updateTheme({ lockWallpaper: url });
       setLockWallpaperUrl('');
       addToast('锁屏壁纸已应用', 'success');
   };
@@ -734,7 +733,7 @@ const Appearance: React.FC = () => {
       const desktopDecorations = skin.id === 'animalcrossing' ? [...existing, ...buildAcnhLeaves()] : existing;
       // skin.config 里写死的 wallpaper 不用，改用上面算出的（备份/还原后的）值
       const { wallpaper: _ignored, ...restConfig } = skin.config;
-      updateTheme({ ...restConfig, wallpaper, desktopDecorations });
+      await updateTheme({ ...restConfig, wallpaper, desktopDecorations });
       addToast(`已切换到「${skin.name}」`, 'success');
   };
 
@@ -975,12 +974,12 @@ const Appearance: React.FC = () => {
                     <LongPressArea
                         className="aspect-[9/16] w-1/2 mx-auto bg-slate-100 rounded-2xl overflow-hidden relative shadow-inner mb-4 group cursor-pointer"
                         onClick={() => wallpaperInputRef.current?.click()}
-                        onLongPress={() => {
+                        onLongPress={async () => {
                             if (theme.wallpaper === DEFAULT_WALLPAPER) {
                                 addToast('当前已是默认壁纸', 'info');
                                 return;
                             }
-                            updateTheme({ wallpaper: DEFAULT_WALLPAPER });
+                            await updateTheme({ wallpaper: DEFAULT_WALLPAPER });
                             addToast('已恢复默认壁纸', 'success');
                         }}
                     >
@@ -1033,12 +1032,12 @@ const Appearance: React.FC = () => {
                     <LongPressArea
                         className="aspect-[9/16] w-1/2 mx-auto bg-slate-100 rounded-2xl overflow-hidden relative shadow-inner mb-4 group cursor-pointer"
                         onClick={() => lockWallpaperInputRef.current?.click()}
-                        onLongPress={() => {
+                        onLongPress={async () => {
                             if (!theme.lockWallpaper) {
                                 addToast('锁屏当前已跟随桌面壁纸', 'info');
                                 return;
                             }
-                            updateTheme({ lockWallpaper: undefined });
+                            await updateTheme({ lockWallpaper: undefined });
                             addToast('锁屏已恢复跟随桌面壁纸', 'success');
                         }}
                     >
@@ -1408,19 +1407,36 @@ const Appearance: React.FC = () => {
                 </section>
             </>
         ) : activeTab === 'icons' ? (
-            <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-5">
+              <section className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-700">保留透明图标原轮廓</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5 leading-snug">开启后按图片原轮廓完整显示，不套系统圆角底框；默认关闭。</div>
+                  </div>
+                  <button
+                    onClick={() => updateTheme({ preserveCustomIconOutlines: !theme.preserveCustomIconOutlines })}
+                    className={`w-12 h-7 rounded-full transition-colors relative shrink-0 ${theme.preserveCustomIconOutlines ? 'bg-primary' : 'bg-slate-200'}`}
+                    aria-label="保留透明图标原轮廓"
+                  >
+                    <div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${theme.preserveCustomIconOutlines ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+              </section>
+              <div className="grid grid-cols-3 gap-4">
                 {INSTALLED_APPS.map(app => {
                     const Icon = Icons[app.icon];
                     const customUrl = customIcons[app.id];
+                    const preserveOutline = !!customUrl && theme.preserveCustomIconOutlines === true;
                     return (
                         <div key={app.id} className="flex flex-col items-center gap-2">
-                             <div 
-                                className={`w-16 h-16 relative group cursor-pointer ${customUrl ? '' : 'rounded-2xl shadow-sm bg-slate-200 overflow-hidden'}`}
+                              <div
+                                className={`w-16 h-16 relative group cursor-pointer ${preserveOutline ? '' : 'rounded-2xl shadow-sm bg-slate-200 overflow-hidden'}`}
                                 onClick={() => { setSelectedAppId(app.id); iconInputRef.current?.click(); }}
-                             >
-                                 {customUrl ? (
-                                     <CustomIconImage value={customUrl} alt={`${app.name} 自定义图标`} />
-                                 ) : (
+                              >
+                                  {customUrl ? (
+                                     <CustomIconImage value={customUrl} alt={`${app.name} 自定义图标`} preserveOutline={preserveOutline} />
+                                  ) : (
                                      <div className={`w-full h-full ${app.color} flex items-center justify-center text-white`}>
                                          <Icon className="w-8 h-8" />
                                      </div>
@@ -1437,6 +1453,7 @@ const Appearance: React.FC = () => {
                     );
                 })}
                 <input type="file" ref={iconInputRef} className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && handleIconUpload(e.target.files[0])} />
+              </div>
             </div>
         ) : activeTab === 'presets' ? (
             <PresetManager

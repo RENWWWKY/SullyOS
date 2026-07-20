@@ -4,7 +4,7 @@ import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGrou
 import { DB } from '../utils/db';
 import { modelRejectsSamplingParams, stripSamplingParams, isSamplingParamError } from '../utils/samplingParamCompat';
 import { extractImagesInPlace, deepCloneForExport } from '../utils/backupExport';
-import { isBlobRef, getBlobForRef, migrateDataUrlToRef, resolveBlobRefsDeep, BLOBREF_PREFIX } from '../utils/blobRef';
+import { isBlobRef, getBlobForRef, migrateDataUrlToRef, resolveBlobRefsDeep, BLOBREF_PREFIX, deleteBlobRefIfUnreferenced } from '../utils/blobRef';
 import { migrateSharkpanAssets } from '../utils/sharkpanAssetMigration';
 import { writeV2Backup, assembleV2Backup, type BackupManifest, type ZipFileWriter, type ZipFileReader } from '../utils/backupFormat';
 import { encodeVectorsForBackup } from '../utils/memoryPalace/db';
@@ -231,7 +231,7 @@ interface OSContextType {
   openApp: (appId: AppID) => void;
   closeApp: () => void;
   theme: OSTheme;
-  updateTheme: (updates: Partial<OSTheme>) => void;
+  updateTheme: (updates: Partial<OSTheme>) => Promise<void>;
   virtualTime: VirtualTime;
   apiConfig: APIConfig;
   updateApiConfig: (updates: Partial<APIConfig>) => void;
@@ -392,6 +392,14 @@ export const DEFAULT_WALLPAPER = [
   'linear-gradient(145deg, #fdfcf9 0%, #f8f6f1 54%, #f1eee8 100%)',
 ].join(', ');
 
+/** 纸感桌面的唯一默认配色来源；外观 App 的“默认风格”也直接复用，避免再次漂回旧粉蓝配置。 */
+export const DEFAULT_PAPER_APPEARANCE = {
+  hue: 88,
+  saturation: 14,
+  lightness: 46,
+  contentColor: '#4b4136',
+} as const;
+
 export const isPaperWallpaper = (wallpaper?: string) => {
   if (!wallpaper) return false;
   if (wallpaper === DEFAULT_WALLPAPER || wallpaper === PREVIOUS_DEFAULT_WALLPAPER) return true;
@@ -414,6 +422,24 @@ let currentWallpaperObjUrl: string | null = null;
 let currentLockWallpaperObjUrl: string | null = null;
 
 /**
+ * 原子替换壁纸指针；旧令牌在确认已不被桌面、锁屏、外观预设或皮肤备份引用后后台清理。
+ * 清理不阻塞换壁纸渲染，且任何引用检查失败都会保守地保留旧 Blob。
+ */
+const replaceWallpaperAssetPointer = async (assetId: 'wallpaper' | 'lock_wallpaper', next: string | null): Promise<void> => {
+    let previous: string | null = null;
+    try {
+        previous = await DB.getAsset(assetId);
+        if (next) await DB.saveAsset(assetId, next);
+        else await DB.deleteAsset(assetId);
+    } catch {
+        return;
+    }
+    if (previous && previous !== next && isBlobRef(previous)) {
+        void deleteBlobRefIfUnreferenced(previous);
+    }
+};
+
+/**
  * 把「存储值」壁纸解析成可直接渲染的 url，并把指针（令牌）落进 assets 'wallpaper'。
  *   · blobref 令牌 → 读 Blob 建 objectURL；
  *   · 旧 data: → 惰性迁移成 Blob 令牌（存量用户下次加载即享空间收益），返回 objectURL；
@@ -426,28 +452,32 @@ const resolveWallpaperStoredValue = async (w: string): Promise<string> => {
     };
     if (isBlobRef(w) || (w && w.startsWith('data:'))) {
         const token = isBlobRef(w) ? w : await migrateDataUrlToRef(w);
-        try { await DB.saveAsset('wallpaper', token); } catch { /* ignore */ }
         const blob = await getBlobForRef(token);
         revokePrev();
         if (blob) {
+            await replaceWallpaperAssetPointer('wallpaper', token);
             currentWallpaperObjUrl = URL.createObjectURL(blob);
             return currentWallpaperObjUrl;
         }
-        return w; // Blob 意外缺失：data: 仍可渲染；令牌无解时保底不改
+        if (isBlobRef(token)) {
+            await replaceWallpaperAssetPointer('wallpaper', null);
+            return DEFAULT_WALLPAPER;
+        }
+        // data: 迁移失败时仍保留旧格式，保证原图能继续显示。
+        await replaceWallpaperAssetPointer('wallpaper', token);
+        return w;
     }
     // http(s) 链接 / 重置 / 渐变：没有二进制要存，清掉指针
-    try { await DB.deleteAsset('wallpaper'); } catch { /* ignore */ }
+    await replaceWallpaperAssetPointer('wallpaper', null);
     revokePrev();
     return w;
 };
 
 const defaultTheme: OSTheme = {
-  hue: 88,
-  saturation: 14,
-  lightness: 46,
+  ...DEFAULT_PAPER_APPEARANCE,
   wallpaper: DEFAULT_WALLPAPER,
   darkMode: false,
-  contentColor: '#4b4136',
+  preserveCustomIconOutlines: false,
   nowPlayingWidgetLight: true,
 };
 
@@ -460,22 +490,27 @@ const resolveLockWallpaperStoredValue = async (w: string | undefined): Promise<s
         }
     };
     if (!w) {
-        try { await DB.deleteAsset('lock_wallpaper'); } catch { /* ignore */ }
+        await replaceWallpaperAssetPointer('lock_wallpaper', null);
         revokePrev();
         return undefined;
     }
     if (isBlobRef(w) || w.startsWith('data:')) {
         const token = isBlobRef(w) ? w : await migrateDataUrlToRef(w);
-        try { await DB.saveAsset('lock_wallpaper', token); } catch { /* ignore */ }
         const blob = await getBlobForRef(token);
         revokePrev();
         if (blob) {
+            await replaceWallpaperAssetPointer('lock_wallpaper', token);
             currentLockWallpaperObjUrl = URL.createObjectURL(blob);
             return currentLockWallpaperObjUrl;
         }
+        if (isBlobRef(token)) {
+            await replaceWallpaperAssetPointer('lock_wallpaper', null);
+            return undefined;
+        }
+        await replaceWallpaperAssetPointer('lock_wallpaper', token);
         return w;
     }
-    try { await DB.deleteAsset('lock_wallpaper'); } catch { /* ignore */ }
+    await replaceWallpaperAssetPointer('lock_wallpaper', null);
     revokePrev();
     return w;
 };

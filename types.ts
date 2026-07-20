@@ -90,6 +90,8 @@ export interface OSTheme {
   launcherAppOrder?: string[];
   launcherDockOrder?: string[];
   launcherPinwheelOrder?: Array<'music' | 'appsA' | 'appsB' | 'image'>;
+  /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */
+  preserveCustomIconOutlines?: boolean;
   /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（新安装默认 true）。 */
   nowPlayingWidgetLight?: boolean;
   desktopDecorations?: DesktopDecoration[];
