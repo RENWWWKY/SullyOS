@@ -46,7 +46,9 @@ const DebugResult: React.FC<{ result: LoyalEligibilityResult | null }> = ({ resu
     if (!result || !isDevDebugAvailable()) return null;
     return (
         <div className="mt-4 border-t border-emerald-300/15 pt-3 font-mono text-[10px] leading-relaxed text-emerald-100/55 select-text">
-            <div>DEV SCORE {result.score}/100 · GATE {result.hardGatePassed ? 'PASS' : 'FAIL'}</div>
+            <div>
+                DEV SCORE {result.score}/100 · PATH {result.qualificationPath?.toUpperCase() || 'NONE'} · GATE {result.hardGatePassed ? 'PASS' : 'FAIL'}
+            </div>
             <div>
                 ACTIVE {result.breakdown.recentActivity}/50 · CHAR {result.breakdown.customCharacter}/15 · MEMORY {result.breakdown.neuralMemory}/25 · PALACE {result.breakdown.memoryPalace}/10
             </div>
@@ -115,6 +117,7 @@ export const LoyalUserRecruitmentController: React.FC<LoyalUserRecruitmentContro
     const [phase, setPhase] = useState<Phase>(() => {
         if (savedAttempt?.status === 'registered') return 'success';
         if (savedAttempt?.status === 'passed_pending') return 'pending';
+        if (savedAttempt?.status === 'qualified_pending_qq') return 'qq';
         if (savedAttempt?.status === 'failed') return 'failed';
         return 'intro';
     });
@@ -163,8 +166,14 @@ export const LoyalUserRecruitmentController: React.FC<LoyalUserRecruitmentContro
         }, 390);
 
         try {
+            const sealedQualifiedResult = savedAttempt?.status === 'qualified_pending_qq'
+                && savedAttempt.evaluation?.passed
+                ? savedAttempt.evaluation
+                : null;
             const [result] = await Promise.all([
-                collectAndEvaluateLoyalUserEligibility(),
+                sealedQualifiedResult
+                    ? Promise.resolve(sealedQualifiedResult)
+                    : collectAndEvaluateLoyalUserEligibility(),
                 wait(1750),
             ]);
             setEvaluation(result);
@@ -184,7 +193,9 @@ export const LoyalUserRecruitmentController: React.FC<LoyalUserRecruitmentContro
             const pendingAttempt: LoyalRecruitmentAttempt = {
                 status: 'passed_pending',
                 criteriaVersion: result.criteriaVersion,
-                evaluatedAt: Date.now(),
+                evaluatedAt: sealedQualifiedResult && savedAttempt
+                    ? savedAttempt.evaluatedAt
+                    : Date.now(),
                 qq: normalizedQQ,
                 evaluation: result,
             };

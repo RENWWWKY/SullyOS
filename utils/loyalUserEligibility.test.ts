@@ -75,6 +75,39 @@ describe('忠实用户一次性资格检测', () => {
         expect(result.breakdown.customCharacter).toBe(15);
         expect(result.breakdown.memoryPalace).toBe(0);
         expect(result.score).toBe(65);
+        expect(result.qualificationPath).toBe('standard');
+        expect(result.passed).toBe(true);
+    });
+
+    it('深度用户可凭两天近期活跃和足够历史沉淀通过，且不强制要求记忆宫殿', () => {
+        const deepMemories: CharacterProfile['memories'] = [
+            { id: 'm01', date: '2026-01-01', summary: 'old' },
+            { id: 'm02', date: '2026-02-01', summary: 'old' },
+            { id: 'm03', date: '2026-03-01', summary: 'old' },
+            { id: 'm04', date: '2026-04-01', summary: 'old' },
+            { id: 'm05', date: '2026-05-01', summary: 'old' },
+            { id: 'm06', date: '2026-05-15', summary: 'old' },
+            { id: 'm07', date: '2026-05-30', summary: 'old' },
+            { id: 'm08', date: '2026-06-10', summary: 'old' },
+            { id: 'm09', date: '2026-06-21', summary: 'recent' },
+            { id: 'm10', date: '2026-06-28', summary: 'recent' },
+            { id: 'm11', date: '2026-07-05', summary: 'recent' },
+            { id: 'm12', date: '2026-07-12', summary: 'recent' },
+        ];
+        const result = evaluateLoyalUserEligibility(snapshot({
+            characters: [character('preset-sully-v2'), character('char-custom', deepMemories)],
+            messages: userMessages([10, 11], 18, 'char-custom'),
+        }));
+
+        expect(result.metrics.recentUserMessages).toBe(36);
+        expect(result.metrics.recentActiveDays).toBe(2);
+        expect(result.hardGatePassed).toBe(false);
+        expect(result.breakdown.customCharacter).toBe(15);
+        expect(result.breakdown.neuralMemory).toBe(25);
+        expect(result.breakdown.memoryPalace).toBe(0);
+        expect(result.deepHistoryScore).toBe(40);
+        expect(result.deepUserChannelPassed).toBe(true);
+        expect(result.qualificationPath).toBe('deep');
         expect(result.passed).toBe(true);
     });
 
@@ -87,6 +120,7 @@ describe('忠实用户一次性资格检测', () => {
         expect(result.metrics.recentUserMessages).toBe(200);
         expect(result.metrics.recentActiveDays).toBe(1);
         expect(result.hardGatePassed).toBe(false);
+        expect(result.deepUserChannelPassed).toBe(false);
         expect(result.passed).toBe(false);
     });
 

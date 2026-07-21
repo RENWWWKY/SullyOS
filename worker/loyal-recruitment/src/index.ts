@@ -216,7 +216,7 @@ const adminPage = () => new Response(ADMIN_PAGE, {
     },
 });
 
-const CRITERIA_VERSION = '2026-07-20-v1';
+const CRITERIA_VERSIONS = new Set(['2026-07-20-v1', '2026-07-20-v2']);
 const CUTOFF_AT = Date.parse('2026-07-20T19:00:00+08:00');
 const RATE_WINDOW_MS = 60 * 60_000;
 const DEFAULT_GROUP_ID = '892128017';
@@ -302,7 +302,7 @@ export default {
                 const cutoffAt = Number(body.cutoffAt);
 
                 if (!/^[1-9]\d{4,11}$/.test(qq)) return json({ ok: false, error: 'invalid qq' }, 400);
-                if (criteriaVersion !== CRITERIA_VERSION || cutoffAt !== CUTOFF_AT) {
+                if (!CRITERIA_VERSIONS.has(criteriaVersion) || cutoffAt !== CUTOFF_AT) {
                     return json({ ok: false, error: 'criteria mismatch' }, 409);
                 }
 

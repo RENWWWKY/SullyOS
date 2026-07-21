@@ -1,6 +1,7 @@
 import {
     LOYAL_RECRUITMENT_CUTOFF_AT,
     LOYAL_RECRUITMENT_CRITERIA_VERSION,
+    reclassifyLoyalEligibilityResult,
     type LoyalEligibilityResult,
 } from './loyalUserEligibility';
 
@@ -8,8 +9,11 @@ export const LOYAL_RECRUITMENT_ATTEMPT_KEY = `sullyos_loyal_recruitment_${LOYAL_
 export const LOYAL_RECRUITMENT_EVENT = 'sullyos-loyal-recruitment-change';
 export const LOYAL_RECRUITMENT_DEFAULT_BASE = 'https://noir2.cc.cd/recruit';
 const LOYAL_RECRUITMENT_BASE_KEY = 'sullyos_loyal_recruitment_base';
+const LOYAL_RECRUITMENT_LEGACY_ATTEMPT_KEYS = [
+    'sullyos_loyal_recruitment_2026-07-20-v1',
+];
 
-export type LoyalRecruitmentStatus = 'declined' | 'failed' | 'passed_pending' | 'registered';
+export type LoyalRecruitmentStatus = 'declined' | 'failed' | 'qualified_pending_qq' | 'passed_pending' | 'registered';
 
 export interface LoyalRecruitmentAttempt {
     status: LoyalRecruitmentStatus;
@@ -46,16 +50,31 @@ export function getLoyalRecruitmentBase(): string {
 }
 
 export function readLoyalRecruitmentAttempt(): LoyalRecruitmentAttempt | null {
-    try {
-        const raw = localStorage.getItem(LOYAL_RECRUITMENT_ATTEMPT_KEY);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw) as LoyalRecruitmentAttempt;
-        if (!parsed || parsed.criteriaVersion !== LOYAL_RECRUITMENT_CRITERIA_VERSION) return null;
-        if (!['declined', 'failed', 'passed_pending', 'registered'].includes(parsed.status)) return null;
-        return parsed;
-    } catch {
-        return null;
+    for (const key of [LOYAL_RECRUITMENT_ATTEMPT_KEY, ...LOYAL_RECRUITMENT_LEGACY_ATTEMPT_KEYS]) {
+        try {
+            const raw = localStorage.getItem(key);
+            if (!raw) continue;
+            const parsed = JSON.parse(raw) as LoyalRecruitmentAttempt;
+            if (!parsed || !['declined', 'failed', 'qualified_pending_qq', 'passed_pending', 'registered'].includes(parsed.status)) continue;
+
+            // v2 只重算旧结果里已经封存的数字，绝不重新读取截止日后的本地数据。
+            const evaluation = parsed.evaluation
+                ? reclassifyLoyalEligibilityResult(parsed.evaluation)
+                : undefined;
+            const status = parsed.status === 'failed' && evaluation?.passed
+                ? 'qualified_pending_qq'
+                : parsed.status;
+            return {
+                ...parsed,
+                status,
+                criteriaVersion: LOYAL_RECRUITMENT_CRITERIA_VERSION,
+                evaluation,
+            };
+        } catch {
+            // 当前 key 损坏时继续尝试上一版封存结果。
+        }
     }
+    return null;
 }
 
 export function writeLoyalRecruitmentAttempt(attempt: LoyalRecruitmentAttempt): void {
@@ -66,11 +85,14 @@ export function writeLoyalRecruitmentAttempt(attempt: LoyalRecruitmentAttempt): 
 export function shouldShowLoyalRecruitment(): boolean {
     if (Date.now() < LOYAL_RECRUITMENT_CUTOFF_AT) return false;
     const attempt = readLoyalRecruitmentAttempt();
-    return !attempt || attempt.status === 'passed_pending';
+    return !attempt || attempt.status === 'qualified_pending_qq' || attempt.status === 'passed_pending';
 }
 
 export function resetLoyalRecruitmentForTesting(): void {
-    try { localStorage.removeItem(LOYAL_RECRUITMENT_ATTEMPT_KEY); } catch { /* ignore */ }
+    try {
+        localStorage.removeItem(LOYAL_RECRUITMENT_ATTEMPT_KEY);
+        for (const key of LOYAL_RECRUITMENT_LEGACY_ATTEMPT_KEYS) localStorage.removeItem(key);
+    } catch { /* ignore */ }
 }
 
 export async function submitQualifiedQQ(qqInput: string): Promise<RecruitmentRegistrationResult> {

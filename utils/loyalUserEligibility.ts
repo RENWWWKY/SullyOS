@@ -9,12 +9,15 @@ import type { MemoryNode } from './memoryPalace/types';
  * 时间全部写明 +08:00，不能跟随设备所在时区。传统 MemoryFragment 只有日期、没有
  * 时分，因此截止日（7 月 20 日）整天不计；其它带 timestamp/createdAt 的数据精确计到 19:00。
  */
-export const LOYAL_RECRUITMENT_CRITERIA_VERSION = '2026-07-20-v1';
+export const LOYAL_RECRUITMENT_CRITERIA_VERSION = '2026-07-20-v2';
 export const LOYAL_RECRUITMENT_CUTOFF_ISO = '2026-07-20T19:00:00+08:00';
 export const LOYAL_RECRUITMENT_RECENT_START_ISO = '2026-06-20T19:00:00+08:00';
 export const LOYAL_RECRUITMENT_CUTOFF_AT = Date.parse(LOYAL_RECRUITMENT_CUTOFF_ISO);
 export const LOYAL_RECRUITMENT_RECENT_START_AT = Date.parse(LOYAL_RECRUITMENT_RECENT_START_ISO);
 export const LOYAL_RECRUITMENT_PASS_SCORE = 65;
+export const LOYAL_RECRUITMENT_DEEP_MIN_MESSAGES = 20;
+export const LOYAL_RECRUITMENT_DEEP_MIN_ACTIVE_DAYS = 2;
+export const LOYAL_RECRUITMENT_DEEP_MIN_HISTORY_SCORE = 35;
 
 const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -57,10 +60,44 @@ export interface LoyalEligibilityResult {
     criteriaVersion: string;
     cutoffAt: number;
     hardGatePassed: boolean;
+    deepUserChannelPassed: boolean;
+    deepHistoryScore: number;
+    qualificationPath: 'standard' | 'deep' | null;
     passed: boolean;
     score: number;
     breakdown: LoyalEligibilityBreakdown;
     metrics: LoyalEligibilityMetrics;
+}
+
+type ReclassifiableEligibilityResult = Pick<
+    LoyalEligibilityResult,
+    'hardGatePassed' | 'score' | 'breakdown' | 'metrics'
+>;
+
+/**
+ * 用已经封存的数字套用当前规则，不重新读取聊天或记忆数据。
+ * 规则升级时用它迁移旧结果，仍然只认 7 月 20 日那次历史截面。
+ */
+export function reclassifyLoyalEligibilityResult(
+    result: ReclassifiableEligibilityResult,
+): LoyalEligibilityResult {
+    const deepHistoryScore = result.breakdown.customCharacter
+        + result.breakdown.neuralMemory
+        + result.breakdown.memoryPalace;
+    const standardPassed = result.hardGatePassed && result.score >= LOYAL_RECRUITMENT_PASS_SCORE;
+    const deepUserChannelPassed = result.metrics.recentUserMessages >= LOYAL_RECRUITMENT_DEEP_MIN_MESSAGES
+        && result.metrics.recentActiveDays >= LOYAL_RECRUITMENT_DEEP_MIN_ACTIVE_DAYS
+        && deepHistoryScore >= LOYAL_RECRUITMENT_DEEP_MIN_HISTORY_SCORE;
+
+    return {
+        ...result,
+        criteriaVersion: LOYAL_RECRUITMENT_CRITERIA_VERSION,
+        cutoffAt: LOYAL_RECRUITMENT_CUTOFF_AT,
+        deepUserChannelPassed,
+        deepHistoryScore,
+        qualificationPath: standardPassed ? 'standard' : deepUserChannelPassed ? 'deep' : null,
+        passed: standardPassed || deepUserChannelPassed,
+    };
 }
 
 interface DatedMemoryUnit {
@@ -298,11 +335,8 @@ export function evaluateLoyalUserEligibility(snapshot: LoyalEligibilitySnapshot)
     };
     const score = Object.values(breakdown).reduce((sum, value) => sum + value, 0);
 
-    return {
-        criteriaVersion: LOYAL_RECRUITMENT_CRITERIA_VERSION,
-        cutoffAt: LOYAL_RECRUITMENT_CUTOFF_AT,
+    return reclassifyLoyalEligibilityResult({
         hardGatePassed,
-        passed: hardGatePassed && score >= LOYAL_RECRUITMENT_PASS_SCORE,
         score,
         breakdown,
         metrics: {
@@ -317,7 +351,7 @@ export function evaluateLoyalUserEligibility(snapshot: LoyalEligibilitySnapshot)
             recentPalaceNodes: recentPalaceNodes.length,
             palaceRooms: palaceRooms.size,
         },
-    };
+    });
 }
 
 /** 一次性读取本机完整历史并生成截面；任一读取失败都会抛出，由 UI 视为技术失败、不消耗机会。 */

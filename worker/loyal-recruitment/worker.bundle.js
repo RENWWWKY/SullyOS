@@ -175,7 +175,7 @@ var adminPage = () => new Response(ADMIN_PAGE, {
     "X-Frame-Options": "DENY"
   }
 });
-var CRITERIA_VERSION = "2026-07-20-v1";
+var CRITERIA_VERSIONS = /* @__PURE__ */ new Set(["2026-07-20-v1", "2026-07-20-v2"]);
 var CUTOFF_AT = Date.parse("2026-07-20T19:00:00+08:00");
 var RATE_WINDOW_MS = 60 * 6e4;
 var DEFAULT_GROUP_ID = "892128017";
@@ -246,7 +246,7 @@ var src_default = {
         const criteriaVersion = String(body.criteriaVersion || "").slice(0, 60);
         const cutoffAt = Number(body.cutoffAt);
         if (!/^[1-9]\d{4,11}$/.test(qq)) return json({ ok: false, error: "invalid qq" }, 400);
-        if (criteriaVersion !== CRITERIA_VERSION || cutoffAt !== CUTOFF_AT) {
+        if (!CRITERIA_VERSIONS.has(criteriaVersion) || cutoffAt !== CUTOFF_AT) {
           return json({ ok: false, error: "criteria mismatch" }, 409);
         }
         const existing = await env.DB.prepare("SELECT qq FROM recruit_candidates WHERE qq = ?").bind(qq).first();
