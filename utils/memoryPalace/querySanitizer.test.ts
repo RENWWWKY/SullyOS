@@ -86,6 +86,24 @@ describe('sanitizeQuerySourceMessages', () => {
         expect(out[0].content).toContain('阿汐');
     });
 
+    it('正文为空但 metadata 有内容的卡片仍参与统计与记忆上下文', () => {
+        const xhs = msg({
+            type: 'xhs_card',
+            content: '',
+            metadata: {
+                xhsNote: {
+                    title: '今天遇到一只很亲人的小猫',
+                    desc: '它一路跟着我走到了地铁口。',
+                    author: '路边观察员',
+                },
+            },
+        });
+        const out = sanitizeQuerySourceMessages([xhs], '阿澄', '小鱼');
+        expect(out).toHaveLength(1);
+        expect(out[0].content).toContain('今天遇到一只很亲人的小猫');
+        expect(out[0].content).toContain('它一路跟着我走到了地铁口');
+    });
+
     it('空消息丢弃；没有 type 字段的合成消息按文本处理', () => {
         const out = sanitizeQuerySourceMessages([
             msg({ content: '   ' }),

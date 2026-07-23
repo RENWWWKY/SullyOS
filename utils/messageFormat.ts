@@ -370,6 +370,11 @@ export function isMessageSemanticallyRelevant(msg: Message): boolean {
     const type = msg.type as string;
     if (type === 'image' || type === 'emoji') return false;
     if (type === 'voice') return !!getVoiceTranscript(msg);
+    // 卡片是其它功能汇入聊天的结构化上下文；即使 content 为空，只要专用格式化器
+    // 能从 metadata 生成可读摘要，也必须参与缓冲区计数和记忆总结。
+    if (type?.endsWith('_card')) {
+        return !!normalizeMessageContent(msg, '角色', '用户').trim();
+    }
     // 有内容或有结构化 metadata 才算
     return !!(msg.content?.trim() || msg.metadata?.scoreCard || msg.metadata?.amount || msg.metadata?.song || msg.metadata?.trpg || msg.metadata?.webpage);
 }
